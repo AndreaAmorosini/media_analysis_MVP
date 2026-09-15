@@ -40,7 +40,7 @@ class MetadataExtractor:
             
         if url:
             page.source.url = url
-            page.source.source_type = SourceType.WEB
+            page.source.type = SourceType.WEB
             
         if sheet_info or surface_percent is not None:
             if page.clipping is None:

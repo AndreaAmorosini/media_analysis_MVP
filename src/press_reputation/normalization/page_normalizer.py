@@ -2,6 +2,8 @@ import logging
 from typing import Any
 
 from press_reputation.models.page import (PageRecord, Region, RegionType)
+from press_reputation.classification import PageClassifier
+from press_reputation.metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,22 @@ class PageNormalizer:
             collection_name="form_items",
             pages=pages,
         )
+        
+        metadata_extractor = MetadataExtractor()
+        page_classifier = PageClassifier()
+        
+        normalized_pages = []
+        
+        for page_no in sorted(pages):
+            page = pages[page_no]
+            
+            metadata_extractor.enrich(page)
+            page.page_type = page_classifier.classify(page)
+            
+            normalized_pages.append(page)
+            
+        return normalized_pages
 
-        return [pages[page_no] for page_no in sorted(pages)]
     
     def _to_dict(self, document: Any) -> dict[str, Any]:
         #Converte docling document in un dizionario
@@ -62,7 +78,7 @@ class PageNormalizer:
         #Inizializza le pagine del documento come PageRecord
         pages: dict[int, PageRecord] = {}
         
-        raw_pages = doc_dict.get("pages", [])
+        raw_pages = doc_dict.get("pages", {})
         
         for page_key, page_data in raw_pages.items():
             page_no = int(page_data.get("page_no") or page_key)
