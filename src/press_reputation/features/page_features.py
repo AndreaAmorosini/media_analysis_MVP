@@ -9,10 +9,13 @@ class PageFeatures(BaseModel):
     text_region_count: int = 0
     image_region_count: int = 0
     header_metadata_count: int = 0
+    source_name_count: int = 0
     article_title_count: int = 0
     article_body_count: int = 0
     footer_count: int = 0
     unknown_count: int = 0
+    
+    index_entry_count: int = 0
 
     has_url: bool = False
     has_foglio: bool = False
@@ -40,14 +43,19 @@ class PageFeatureExtractor:
         lower = text.lower()
 
         region_count = len(page.regions)
+        
+        def count_type(value: str) -> int:
+            return sum(1 for region in page.regions if region.type.value == value)
+        
+        index_entry_count = sum(1 for region in page.regions if region.text and ("pag." in region.text.lower() or "pagina" in region.text.lower()))
 
-        text_region_count = sum(1 for region in page.regions if region.text and region.text.strip())
-        image_region_count = sum(1 for region in page.regions if region.type.value == "image")
-        header_metadata_count = sum(1 for region in page.regions if region.type.value == "header_metadata")
-        article_title_count = sum(1 for region in page.regions if region.type.value == "article_title")
-        article_body_count = sum(1 for region in page.regions if region.type.value == "article_body")
-        footer_count = sum(1 for region in page.regions if region.type.value == "footer")
-        unknown_count = sum(1 for region in page.regions if region.type.value == "unknown")
+        # text_region_count = sum(1 for region in page.regions if region.text and region.text.strip())
+        # image_region_count = sum(1 for region in page.regions if region.type.value == "image")
+        # header_metadata_count = sum(1 for region in page.regions if region.type.value == "header_metadata")
+        # article_title_count = sum(1 for region in page.regions if region.type.value == "article_title")
+        # article_body_count = sum(1 for region in page.regions if region.type.value == "article_body")
+        # footer_count = sum(1 for region in page.regions if region.type.value == "footer")
+        # unknown_count = sum(1 for region in page.regions if region.type.value == "unknown")
 
         has_url = "http://" in lower or "https://" in lower
         has_foglio = "foglio" in lower
@@ -84,17 +92,20 @@ class PageFeatureExtractor:
                 has_cookie_marker,
             ]
         )
+        
+        image_count = count_type("image") + count_type("article_position_thumbnail")
+        unknown_count = count_type("unknown")
 
         return PageFeatures(
             pdf_page=page.pdf_page,
             text_char_count=len(text),
             region_count=region_count,
-            text_region_count=text_region_count,
-            image_region_count=image_region_count,
-            header_metadata_count=header_metadata_count,
-            article_title_count=article_title_count,
-            article_body_count=article_body_count,
-            footer_count=footer_count,
+            image_region_count=image_count,
+            header_metadata_count=count_type("header_metadata"),
+            article_title_count=count_type("article_title"),
+            article_body_count=count_type("article_body"),
+            footer_count=count_type("footer"),
+            index_entry_count=index_entry_count,
             unknown_count=unknown_count,
             has_url=has_url,
             has_foglio=has_foglio,
@@ -109,8 +120,7 @@ class PageFeatureExtractor:
             has_cookie_marker=has_cookie_marker,
             clipping_marker_count=clipping_marker_count,
             web_marker_count=web_marker_count,
-            text_region_ratio=self.safe_ratio(text_region_count, region_count),
-            image_region_ratio=self.safe_ratio(image_region_count, region_count),
+            image_region_ratio=self.safe_ratio(image_count, region_count),
             unknown_region_ratio=self.safe_ratio(unknown_count, region_count),
         )
         

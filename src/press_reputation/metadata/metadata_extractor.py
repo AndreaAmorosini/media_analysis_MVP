@@ -2,7 +2,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from press_reputation.models.page import (ClippingInfo, PageRecord, SourceType)
+from press_reputation.models.page import (ClippingInfo, PageRecord, SourceType, RegionType)
 
 ITALIAN_MONTHS = {
     "GEN": 1,
@@ -25,52 +25,69 @@ class MetadataExtractor:
     
     def enrich(self, page: PageRecord) -> PageRecord:
         text = self.metadata_text(page)
-        
+
         if not text:
             text = self.page_text(page)
-        
+
         publication_date = self.extract_date(text)
         original_page = self.extract_original_page(text)
         sheet_info = self.extract_sheet_info(text)
         surface_percent = self.extract_surface_percent(text)
-        url = self.extract_url(text)
-        
+        url = self.extract_url(self.page_text(page))
+        section = self.extract_section(page)
+        source_name = self.extract_source_name(page)
+
         if publication_date:
             page.source.publication_date = publication_date
-            
+
         if original_page:
             page.source.original_page = original_page
-            
+
         if url:
             page.source.url = url
             page.source.type = SourceType.WEB
-            
+
+        if section:
+            page.section = section
+
+        if source_name and page.source.name is None:
+            page.source.name = source_name
+            if page.source.type == SourceType.UNKNOWN:
+                page.source.type = SourceType.NEWSPAPER
+
         if sheet_info or surface_percent is not None:
             if page.clipping is None:
                 page.clipping = ClippingInfo()
-                
+
             if sheet_info:
                 page.clipping.sheet_current = sheet_info[0]
                 page.clipping.sheet_total = sheet_info[1]
-                
+
             if surface_percent is not None:
                 page.clipping.surface_percent = surface_percent
-                
+
             if page.source.type == SourceType.UNKNOWN:
                 page.source.type = SourceType.NEWSPAPER
-                
-        source_name = self.extract_source_name(text)
-        
-        if source_name and page.source.name is None:
-            page.source.name = source_name
-            
+
         return page
     
     @staticmethod
     def metadata_text(page: PageRecord) -> str:
+        metadata_types = {
+            RegionType.HEADER_METADATA,
+            RegionType.SOURCE_NAME,
+            RegionType.PRESS_REVIEW_PROVIDER,
+            RegionType.PUBLICATION_DATE,
+            RegionType.ORIGINAL_PAGE,
+            RegionType.CLIPPING_SHEET,
+        }
+
         return "\n".join(
-            region.text.strip() for region in page.regions
-                if region.type.value == "header_metadata" and region.text and region.text.strip()
+            region.text.strip()
+            for region in page.regions
+            if region.type in metadata_types
+            and region.text
+            and region.text.strip()
         )
     
     @staticmethod
@@ -146,43 +163,31 @@ class MetadataExtractor:
         return None
     
     @staticmethod
-    def extract_source_name(text: str) -> Optional[str]:
-        #Cerca una riga breve subito prima di una riga contenente "da pag"
-        #TODO : Migliorare l'estrazione del nome della fonte
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        
-        ignored_patterns = (
-            "rassegna",
-            "tiratura",
-            "diffusione",
-            "lettori",
-            "superficie",
-            "foglio",
-            "dir. resp",
-            "quotidiano",
-            "articolo non cedibile"
-        )
-        
-        for index, line in enumerate(lines):
-            if "da pag" not in line.lower():
+    def extract_source_name(page: PageRecord) -> str | None:
+        for region in page.regions:
+            if region.type == RegionType.SOURCE_NAME and region.text:
+                return region.text.strip()
+
+        return None
+    
+    @staticmethod
+    def extract_section(page: PageRecord) -> str | None:
+        known_sections = {
+            "stampa locale",
+            "stampa nazionale",
+            "web",
+            "radio",
+            "tv",
+            "televisione",
+        }
+
+        for region in page.regions:
+            if not region.text:
                 continue
-            
-            if index == 0:
-                continue
-            
-            candidate = lines[index - 1].strip()
-            
-            if not candidate:
-                continue
-            
-            lower = candidate.lower()
-            
-            if any(pattern in lower for pattern in ignored_patterns):
-                continue
-            
-            if len(candidate) > 80:
-                continue
-            
-            return candidate
-        
+
+            normalized = region.text.strip().lower()
+
+            if normalized in known_sections:
+                return normalized.upper().replace(" ", "_")
+
         return None

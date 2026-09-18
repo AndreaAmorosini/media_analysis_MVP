@@ -11,6 +11,7 @@ class PageType(str, Enum):
     WEB = "web"
     PURE_TEXT = "pure_text"
     UNKNOWN = "unknown"
+    INDEX = "index"
     
 class SourceType(str, Enum):
     NEWSPAPER = "newspaper"
@@ -19,11 +20,19 @@ class SourceType(str, Enum):
     
 class RegionType(str, Enum):
     HEADER_METADATA = "header_metadata"
+    SOURCE_NAME = "source_name"
+    PRESS_REVIEW_PROVIDER = "press_review_provider"
+    PUBLICATION_DATE = "publication_date"
+    ORIGINAL_PAGE = "original_page"
+    CLIPPING_SHEET = "clipping_sheet"
+    
     ARTICLE_TITLE = "article_title"
     ARTICLE_SUBTITLE = "article_subtitle"
     ARTICLE_BODY = "article_body"
     AUTHOR = "author"
+    
     IMAGE = "image"
+    ARTICLE_POSITION_THUMBNAIL = "article_position_thumbnail"
     CAPTION = "caption"
     FOOTER = "footer"
     SIDEBAR = "sidebar"
@@ -53,12 +62,16 @@ class Region(BaseModel):
     bbox: Optional[list[float]] = None
     raw_label: Optional[str] = None
     provenance: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PageRecord(BaseModel):
     document_id: str
     pdf_page: int
     page_type: PageType = PageType.UNKNOWN
+    section: Optional[str] = None
+    page_width: Optional[float] = None
+    page_height: Optional[float] = None
     source: SourceInfo = Field(default_factory=SourceInfo)
     clipping: Optional[ClippingInfo] = None
     regions: list[Region] = Field(default_factory=list)

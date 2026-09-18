@@ -84,8 +84,9 @@ class PageNormalizer:
         
         for page_key, page_data in raw_pages.items():
             page_no = int(page_data.get("page_no") or page_key)
+            size = page_data.get("size") or {}
             
-            pages[page_no] = PageRecord(document_id=document_id, pdf_page=page_no)
+            pages[page_no] = PageRecord(document_id=document_id, pdf_page=page_no, page_width=size.get("width"), page_height=size.get("height"))
             
         return pages
     

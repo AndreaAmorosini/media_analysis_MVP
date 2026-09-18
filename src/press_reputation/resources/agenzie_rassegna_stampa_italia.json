@@ -1,0 +1,295 @@
+{
+  "metadata": {
+    "titolo": "Agenzie e operatori di rassegna stampa e media monitoring operanti in Italia",
+    "data_verifica": "2026-09-18",
+    "numero_operatori_totali": 29,
+    "numero_immrs_promopress": 26,
+    "numero_operatori_aggiuntivi": 3,
+    "criterio": "Il nucleo principale comprende tutte le imprese elencate nel Repertorio Promopress come società aderenti per servizi di media monitoring e rassegna stampa. Sono inoltre inclusi separatamente operatori internazionali con un'offerta di media monitoring fruibile sul mercato italiano, senza considerarli aderenti Promopress.",
+    "limite": "Non esiste un registro pubblico universale di ogni impresa che possa commercialmente offrire servizi di rassegna stampa in Italia. L'elenco Promopress è usato come riferimento settoriale più autorevole per le IMMRS aderenti."
+  },
+  "immrs_promopress": [
+    {
+      "nome": "AsitNews",
+      "ragione_sociale": "ASITNEWS S.R.L.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.asitnews.it/"
+    },
+    {
+      "nome": "B&B Infostampa",
+      "ragione_sociale": "B&B Infostampa S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://bebinfostampa.it/"
+    },
+    {
+      "nome": "Column",
+      "ragione_sociale": "Column S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.column.news/"
+    },
+    {
+      "nome": "Daily Press",
+      "ragione_sociale": "Daily Press S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.daily-press.info/"
+    },
+    {
+      "nome": "Data Stampa",
+      "ragione_sociale": "Data Stampa S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.datastampa.it/"
+    },
+    {
+      "nome": "Duepunti",
+      "ragione_sociale": "Duepunti S.a.s.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "EDAnews",
+      "ragione_sociale": "Edanews S.r.l.",
+      "aliases": [
+        "EDAnews"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "Emeropro 99",
+      "ragione_sociale": "Emeropro 99 s.a.s. di Franchina Salvatore e C.",
+      "aliases": [
+        "Emeropro99"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "eXtrapola",
+      "ragione_sociale": "eXtrapola S.r.l.",
+      "aliases": [
+        "Extrapola"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.extrapola.com/it/"
+    },
+    {
+      "nome": "Infojuice",
+      "ragione_sociale": "Infojuice S.r.l.",
+      "aliases": [
+        "Euregio",
+        "Euregio S.r.l."
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "InfoMonitora",
+      "ragione_sociale": "Infomonitora S.r.l.s.",
+      "aliases": [
+        "Infomonitora"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://infomonitora.it/"
+    },
+    {
+      "nome": "Informat Press",
+      "ragione_sociale": "Informat Press S.r.l.s.",
+      "aliases": [
+        "InformatPress"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.informat-press.it/"
+    },
+    {
+      "nome": "Intermedia Service",
+      "ragione_sociale": "Intermedia Service S.C.",
+      "aliases": [
+        "Intermedia"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.intermedia.it/"
+    },
+    {
+      "nome": "L'Eco della Stampa",
+      "ragione_sociale": "L'Eco della Stampa S.p.A.",
+      "aliases": [
+        "Eco della Stampa",
+        "Ecostampa"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.ecostampa.it/"
+    },
+    {
+      "nome": "Media Press",
+      "ragione_sociale": "Media Press S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://mediapress.fm/"
+    },
+    {
+      "nome": "Mimesi",
+      "ragione_sociale": "Mimesi S.r.l.",
+      "aliases": [
+        "MIMESI"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.mimesi.com/"
+    },
+    {
+      "nome": "Omnia Stampa",
+      "ragione_sociale": "Omnia Stampa S.r.l.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "Onclusive",
+      "ragione_sociale": "Onclusive Media S.r.l.",
+      "aliases": [
+        "Onclusive Media",
+        "Kantar Media",
+        "Kantar Media Italia"
+      ],
+      "categoria": "IMMRS internazionale con società italiana",
+      "aderente_promopress": true,
+      "sito": "https://onclusive.com/it/"
+    },
+    {
+      "nome": "P-Review",
+      "ragione_sociale": "P. Review S.r.l.",
+      "aliases": [
+        "P. Review",
+        "P Review"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://p-review.it/"
+    },
+    {
+      "nome": "Pressclipping Italia",
+      "ragione_sociale": "Pressclipping Italia S.r.l.",
+      "aliases": [
+        "Press Clipping",
+        "Pressclipping"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.pressclipping.it/"
+    },
+    {
+      "nome": "Pressline",
+      "ragione_sociale": "Pressline S.r.l.",
+      "aliases": [
+        "Press Line"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://pressline.it/"
+    },
+    {
+      "nome": "PressToday",
+      "ragione_sociale": "PressToday S.r.l.",
+      "aliases": [
+        "PRESSToday"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://presstoday.com/"
+    },
+    {
+      "nome": "SIFA",
+      "ragione_sociale": "SIFA S.r.l.",
+      "aliases": [
+        "Sifa"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://sifasrl.com/"
+    },
+    {
+      "nome": "Stampa Corrente",
+      "ragione_sociale": "Stampa Corrente S.n.c.",
+      "aliases": [],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": null
+    },
+    {
+      "nome": "Telpress Italia",
+      "ragione_sociale": "Telpress Italia S.r.l.",
+      "aliases": [
+        "Telpress"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.telpress.it/"
+    },
+    {
+      "nome": "Volocom",
+      "ragione_sociale": "Volocom S.r.l.",
+      "aliases": [
+        "VoloPress",
+        "Volo.com"
+      ],
+      "categoria": "IMMRS italiana",
+      "aderente_promopress": true,
+      "sito": "https://www.volocom.it/"
+    }
+  ],
+  "altri_operatori_verificati": [
+    {
+      "nome": "Cision",
+      "ragione_sociale": null,
+      "aliases": [
+        "CisionOne"
+      ],
+      "categoria": "media intelligence internazionale",
+      "aderente_promopress": false,
+      "sito": "https://www.cision.it/",
+      "nota": "Offre in Italia monitoraggio media e rassegne stampa personalizzate; non compare nell'elenco Promopress consultato."
+    },
+    {
+      "nome": "Meltwater",
+      "ragione_sociale": null,
+      "aliases": [],
+      "categoria": "media intelligence internazionale",
+      "aderente_promopress": false,
+      "sito": "https://www.meltwater.com/",
+      "nota": "Piattaforma globale di media monitoring con copertura anche di fonti italiane; non compare nell'elenco Promopress consultato."
+    },
+    {
+      "nome": "blueReport",
+      "ragione_sociale": "cognita AG",
+      "aliases": [
+        "blueReport by cognita"
+      ],
+      "categoria": "media monitoring internazionale",
+      "aderente_promopress": false,
+      "sito": "https://www.bluereport.net/it/",
+      "nota": "Offre rassegne stampa e media monitoring internazionale con interfaccia e offerta in italiano; non compare nell'elenco Promopress consultato."
+    }
+  ]
+}
