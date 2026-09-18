@@ -24,7 +24,10 @@ class MetadataExtractor:
     #TODO: Da rivedere completamente per renderlo agnostico
     
     def enrich(self, page: PageRecord) -> PageRecord:
-        text = self.page_text(page)
+        text = self.metadata_text(page)
+        
+        if not text:
+            text = self.page_text(page)
         
         publication_date = self.extract_date(text)
         original_page = self.extract_original_page(text)
@@ -62,6 +65,13 @@ class MetadataExtractor:
             page.source.name = source_name
             
         return page
+    
+    @staticmethod
+    def metadata_text(page: PageRecord) -> str:
+        return "\n".join(
+            region.text.strip() for region in page.regions
+                if region.type.value == "header_metadata" and region.text and region.text.strip()
+        )
     
     @staticmethod
     def page_text(page: PageRecord) -> str:

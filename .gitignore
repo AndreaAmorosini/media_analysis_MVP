@@ -5,3 +5,5 @@ Data/
 src/data/
 pixi.lock
 **/__pycache__/
+results/
+.vscode/

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from press_reputation.models.page import PageRecord, Region
 
 class RegionFeatures(BaseModel):
-    text_lenght: int = 0
+    text_length: int = 0
     word_count: int = 0
     uppercase_ratio: float = 0.0
     

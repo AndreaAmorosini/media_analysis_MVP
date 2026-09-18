@@ -24,7 +24,7 @@ def safe_document_dir_name(pdf_path: Path) -> str:
 @app.command()
 def parse(
     pdf_path: Path = typer.Argument(..., help="Path to the PDF file to parse"),
-    output_dir: Path = typer.Option(Path("data"), "--output-dir", "-o", help="Directory to save the parsed data"),
+    output_dir: Path = typer.Option(Path("results"), "--output-dir", "-o", help="Directory to save the parsed data"),
     debug_bbox: bool = typer.Option(False, "--debug-bbox", help="Enable debug mode for bounding boxes"),
 ) -> None:
     #Elabora un PDF con Docling e genera PageRecord JSON per pagina.

@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from press_reputation.models.page import (PageRecord, Region, RegionType)
-from press_reputation.classification import PageClassifier
+from press_reputation.classification import PageClassifier, RegionClassifier
 from press_reputation.metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ class PageNormalizer:
             pages=pages,
         )
         
+        region_classifier = RegionClassifier()
         metadata_extractor = MetadataExtractor()
         page_classifier = PageClassifier()
         
@@ -52,6 +53,7 @@ class PageNormalizer:
         for page_no in sorted(pages):
             page = pages[page_no]
             
+            region_classifier.enrich(page)
             metadata_extractor.enrich(page)
             page.page_type = page_classifier.classify(page)
             

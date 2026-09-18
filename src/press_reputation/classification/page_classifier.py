@@ -1,73 +1,64 @@
 from press_reputation.models.page import PageRecord, PageType
+from press_reputation.features import PageFeatureExtractor, PageFeatures
 
-CLIPPING_PATTERNS = [
-    "superficie",
-    "tiratura",
-    "diffusione",
-    "lettori",
-    "foglio",
-    "dir. resp.",
-    "dir. resp",
-    "quotidiano",
-]
-
-WEB_PATTERNS = [
-    "http://",
-    "https://",
-    "newsletter",
-    "condividi",
-    "twitta",
-    "ultimi articoli",
-    "articoli correlati",
-    "cookie",
-    "privacy policy",
-]
 
 class PageClassifier:
-    #Classificazione deterministico per PageType. Attualmente usa marker preimpostati per riconoscere le tipologie
+    #Classificazione deterministico per PageType usando features estartte da page_features
     #TODO: migliorare classificazione con ML
     
+    def __init__(self) -> None:
+        self.feature_extractor = PageFeatureExtractor()
+    
     def classify(self, page: PageRecord) -> PageType:
-        text = self.page_text(page)
-        lower = text.lower()
+        features = self.feature_extractor.extract(page)
         
-        clipping_matches = sum(pattern in lower for pattern in CLIPPING_PATTERNS)
-        if clipping_matches >= 2:
+        if self.looks_like_clipping(features):
             return PageType.CLIPPING
         
-        web_matches = sum(pattern in lower for pattern in WEB_PATTERNS)
-        if web_matches >= 1:
+        if self.looks_like_web(features):
             return PageType.WEB
         
-        if self.looks_like_pure_text(page):
+        if self.looks_like_pure_text(features):
             return PageType.PURE_TEXT
         
         return PageType.UNKNOWN
-    
+
     @staticmethod
-    def page_text(page: PageRecord) -> str:
-        return "\n".join(region.text.strip() for region in page.regions if region.text and region.text.strip())
-    
+    def looks_like_clipping(features: PageFeatures) -> bool:
+        if features.clipping_marker_count >= 2:
+            return True
+        
+        if (features.header_metadata_count >= 1 and features.clipping_marker_count >= 1):
+            return True
+        
+        return False
+
     @staticmethod
-    def looks_like_pure_text(page: PageRecord) -> bool:
-        text_regions = [
-            region
-            for region in page.regions
-            if region.text and region.text.strip()
-        ]
-
-        image_regions = [
-            region
-            for region in page.regions
-            if region.type.value == "image"
-        ]
-
-        total_chars = sum(len(region.text or "") for region in text_regions)
-
-        if total_chars < 500:
+    def looks_like_pure_text(features: PageFeatures) -> bool:
+        if features.text_char_count < 500:
             return False
-
-        if image_regions and len(image_regions) >= len(text_regions):
+        
+        if features.image_region_ratio > 0.4:
             return False
-
+        
+        if features.clipping_marker_count > 0:
+            return False
+        
+        if features.web_marker_count > 0:
+            return False
+        
         return True
+    
+    @staticmethod
+    def looks_like_web(features: PageFeatures) -> bool:
+        if features.web_marker_count >= 2:
+            return True
+        
+        if features.has_url and features.has_newsletter:
+            return True
+        
+        if features.has_url and features.has_related_content_marker:
+            return True
+        
+        return False
+

@@ -78,6 +78,17 @@ class RegionClassifier:
         return False
     
     @staticmethod
+    def like_navigation(features: RegionFeatures) -> bool:
+        if features.has_navigation_marker:
+            return True
+        
+        if features.has_url and features.word_count <= 6:
+            return True
+        
+        return False
+        
+    
+    @staticmethod
     def like_related_content(features: RegionFeatures) -> bool:
         if features.has_related_marker:
             return True
@@ -91,7 +102,7 @@ class RegionClassifier:
         return False
         
     @staticmethod
-    def looks_like_article_title(features: RegionFeatures) -> bool:
+    def like_article_title(features: RegionFeatures) -> bool:
         if features.raw_label != "section_header":
             return False
 
@@ -110,7 +121,7 @@ class RegionClassifier:
         return True
 
     @staticmethod
-    def looks_like_article_body(features: RegionFeatures) -> bool:
+    def like_article_body(features: RegionFeatures) -> bool:
         if features.raw_label != "text":
             return False
 
