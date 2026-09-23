@@ -7,6 +7,7 @@ from rich.console import Console
 
 from press_reputation.normalization import PageNormalizer
 from press_reputation.parsers import DoclingParser
+from press_reputation.image_analysis import enrich_article_position_thumbnails
 
 app = typer.Typer()
 console = Console()
@@ -61,6 +62,7 @@ def parse(
     pages = normalizer.normalize(document, document_id=pdf_path.name)
     
     for page in pages:
+        enrich_article_position_thumbnails(pdf_path=pdf_path, page=page)
         page_output_path = pages_dir / f"page_{page.pdf_page:03d}.json"
         page_output_path.write_text(page.model_dump_json(indent=2), encoding="utf-8")
         

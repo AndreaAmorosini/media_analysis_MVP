@@ -25,6 +25,7 @@ class RegionType(str, Enum):
     PUBLICATION_DATE = "publication_date"
     ORIGINAL_PAGE = "original_page"
     CLIPPING_SHEET = "clipping_sheet"
+    LOCATION = "location"
     
     ARTICLE_TITLE = "article_title"
     ARTICLE_SUBTITLE = "article_subtitle"

@@ -37,6 +37,7 @@ class RegionFeatures(BaseModel):
     
     municipality_count: int = 0
     municipalities: list[dict] = []
+    primary_municipality_name: str | None = None
     
     like_section_label: bool = False
     like_index_entry: bool = False
@@ -115,6 +116,7 @@ class RegionFeatureExtractor:
             press_review_provider_name=provider.get("nome") if provider else None,
             municipality_count=len(municipalities),
             municipalities=municipalities,
+            primary_municipality_name=municipalities[0]["comune"] if municipalities else None,
             like_section_label=normalized_line in {"stampa locale", "stampa nazionale", "web", "radio", "tv", "televisione"},
             like_index_entry=self.looks_like_index_entry(text),
             raw_label=region.raw_label,

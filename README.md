@@ -9,6 +9,9 @@ L'implementazione attuale trasforma un PDF in una rappresentazione normalizzata 
 - provenance
 - label originali del parser
 - output raw di Docling
+- classificazione delle regioni
+- metadata strutturati
+- informazioni di layout editoriale quando disponibili
 
 Questa fase riguarda esclusivamente il primo stadio della pipeline di estrazione.
 
@@ -23,13 +26,21 @@ raw Docling output
 ↓
 PageNormalizer
 ↓
+RegionFeatureExtractor
+↓
+RegionClassifier
+↓
 MetadataExtractor
 ↓
 PageClassifier
 ↓
+Image analysis su article_position_thumbnail
+↓
 PageRecord[]
 ↓
 JSON per pagina
+↓
+debug bbox opzionale
 ```
 
 ## Struttura del progetto
@@ -47,18 +58,32 @@ src/press_reputation/
 ├── normalization/
 │   ├── __init__.py
 │   └── page_normalizer.py
+├── features/
+│   ├── __init__.py
+│   ├── region_features.py
+│   └── page_features.py
+├── classification/
+│   ├── __init__.py
+│   ├── region_classifier.py
+│   └── page_classifier.py
 ├── metadata/
 │   ├── __init__.py
 │   └── metadata_extractor.py
-├── classification/
+├── image_analysis/
 │   ├── __init__.py
-│   └── page_classifier.py
-└── visualization/
-    ├── __init__.py
-    └── bbox_overlay.py
+│   └── position_thumbnail.py
+├── visualization/
+│   ├── __init__.py
+│   └── bbox_overlay.py
+├── resources/
+│   ├── agenzie_rassegna_stampa_italia.json
+│   ├── comuni_italiani.json
+│   └── newspaper.json
+├── lookup.py
+└── cli.py
 ```
 
-## Ordine dei moduli
+## Ordine logico dei moduli
 
 ### 1. `models`
 
@@ -85,7 +110,30 @@ Enum principali:
 - `SourceType`
 - `RegionType`
 
-I modelli rappresentano il formato dati interno normalizzato.
+`PageRecord` rappresenta una pagina PDF normalizzata.
+
+Contiene:
+
+- `document_id`
+- `pdf_page`
+- `page_type`
+- `section`
+- `page_width`
+- `page_height`
+- `source`
+- `clipping`
+- `regions`
+
+Ogni `Region` conserva:
+
+- `type`
+- `text`
+- `bbox`
+- `raw_label`
+- `provenance`
+- `metadata`
+
+---
 
 ### 2. `parsers`
 
@@ -98,13 +146,9 @@ parsers/base.py
 parsers/docling_parser.py
 ```
 
-`DocumentParser` definisce l'interfaccia astratta:
+`DocumentParser` definisce l'interfaccia astratta.
 
-```text
-PDF → documento raw
-```
-
-`DoclingParser` usa Docling per elaborare il PDF e produrre il documento raw.
+`DoclingParser` usa Docling per elaborare il PDF.
 
 Responsabilità principali:
 
@@ -113,6 +157,14 @@ Responsabilità principali:
 - eseguire la conversione con Docling
 - restituire il documento Docling raw
 - salvare il raw output in JSON
+
+Output:
+
+```text
+raw/docling.json
+```
+
+---
 
 ### 3. `normalization`
 
@@ -134,9 +186,213 @@ Responsabilità principali:
 - conservare provenance
 - conservare il label originale Docling
 - mappare i label Docling in `RegionType`
-- usare `unknown` quando il mapping non è sicuro
+- popolare `page_width` e `page_height`
 
-### 4. `metadata`
+Convenzione interna bbox:
+
+```text
+[x0, y0, x1, y1]
+origine: top-left
+unità: punti PDF
+asse Y: cresce verso il basso
+```
+
+---
+
+### 4. `features`
+
+Contiene feature extractor per regioni e pagine.
+
+File principali:
+
+```text
+features/region_features.py
+features/page_features.py
+```
+
+#### `RegionFeatureExtractor`
+
+Estrae feature da una singola regione:
+
+- lunghezza testo
+- numero parole
+- rapporto maiuscole
+- presenza URL
+- presenza data
+- marker clipping:
+  - `foglio`
+  - `superficie`
+  - `tiratura`
+  - `diffusione`
+  - `lettori`
+  - `dir. resp.`
+  - `quotidiano`
+- marker web:
+  - `newsletter`
+  - `condividi`
+  - `twitta`
+  - `articoli correlati`
+  - `ultimi articoli`
+  - `cookie`
+- bbox e posizione relativa
+- riconoscimento testate giornalistiche
+- riconoscimento agenzie di rassegna stampa
+- riconoscimento comuni italiani
+
+#### `PageFeatureExtractor`
+
+Estrae feature aggregate dalla pagina:
+
+- numero regioni
+- numero immagini
+- numero regioni unknown
+- numero titoli
+- numero body
+- marker clipping
+- marker web
+- possibili entry indice
+
+---
+
+### 5. `lookup`
+
+File:
+
+```text
+lookup.py
+```
+
+Carica e indicizza risorse locali per lookup veloci.
+
+Risorse usate:
+
+```text
+resources/newspaper.json
+resources/comuni_italiani.json
+resources/agenzie_rassegna_stampa_italia.json
+```
+
+Funzioni principali:
+
+- `get_newspaper`
+- `is_known_newspaper`
+- `get_press_review_provider`
+- `is_press_review_provider`
+- `find_municipalities`
+
+I lookup sono ottimizzati tramite:
+
+- `lru_cache`
+- dizionari normalizzati
+- indici per primo token per i comuni
+
+La ricerca dei comuni supporta anche nomi composti, per esempio:
+
+```text
+Torre del Greco
+Castellammare di Stabia
+San Giorgio a Cremano
+Sant'Antonio Abate
+```
+
+---
+
+### 6. `classification`
+
+Contiene la classificazione deterministica di regioni e pagine.
+
+File principali:
+
+```text
+classification/region_classifier.py
+classification/page_classifier.py
+```
+
+#### `RegionClassifier`
+
+Classifica singole regioni usando:
+
+```text
+RegionFeatures + contesto pagina
+```
+
+Tipi regione attuali:
+
+```text
+header_metadata
+source_name
+press_review_provider
+publication_date
+original_page
+clipping_sheet
+location
+article_title
+article_subtitle
+article_body
+author
+image
+article_position_thumbnail
+caption
+footer
+sidebar
+advertisement
+navigation
+related_content
+unknown
+```
+
+Esempi:
+
+```text
+Metropolis
+→ source_name
+
+Data Stampa
+→ press_review_provider
+
+art Gragnano
+→ location
+```
+
+Nel caso del luogo, il testo originale resta invariato:
+
+```json
+"text": "art Gragnano"
+```
+
+ma nei metadata viene salvato il comune riconosciuto:
+
+```json
+"metadata": {
+  "location_name": "Gragnano",
+  "municipalities": [...]
+}
+```
+
+#### `PageClassifier`
+
+Classifica il tipo pagina usando `PageFeatures`.
+
+Tipi pagina attuali:
+
+```text
+index
+clipping
+web
+pure_text
+unknown
+```
+
+La pagina indice viene riconosciuta con euristiche conservative, per esempio:
+
+- prima pagina
+- assenza marker clipping
+- molte righe brevi o riferimenti pagina
+- basso contenuto testuale narrativo
+
+---
+
+### 7. `metadata`
 
 Contiene l'estrazione deterministica dei metadata.
 
@@ -151,9 +407,10 @@ Responsabilità principali:
 - estrarre la data di pubblicazione
 - estrarre la pagina originale della fonte
 - estrarre informazioni di foglio
-- estrarre la superficie occupata dal ritaglio
-- estrarre URL se presenti
-- tentare l'estrazione conservativa del nome della fonte
+- estrarre superficie occupata dal ritaglio
+- estrarre URL
+- estrarre sezione della rassegna
+- estrarre nome fonte se riconosciuto
 
 Esempi gestiti:
 
@@ -172,50 +429,108 @@ Superficie 47 %
 → surface_percent = 47.0
 ```
 
-Se un valore non viene riconosciuto, resta `null`.
+Quando Docling restituisce un blocco composito, per esempio:
 
-### 5. `classification`
+```text
+da pag. 8 / 17-GEN-2025 foglio 1
+```
 
-Contiene la classificazione deterministica della pagina.
+la regione viene trattata come metadata composito:
+
+```json
+{
+  "type": "header_metadata",
+  "metadata": {
+    "original_page": 8,
+    "publication_date": "2025-01-17",
+    "sheet_current": 1,
+    "sheet_total": null
+  }
+}
+```
+
+---
+
+### 8. `image_analysis`
+
+Contiene analisi leggere sulle immagini tecniche estratte dal PDF.
 
 File principale:
 
 ```text
-classification/page_classifier.py
+image_analysis/position_thumbnail.py
 ```
 
-Valori possibili per `page_type`:
+Analizza regioni classificate come:
 
 ```text
-clipping
-web
-pure_text
-unknown
+article_position_thumbnail
 ```
 
-La classificazione usa pattern testuali conservativi.
+Queste miniature rappresentano di solito la posizione dell'articolo nella pagina originale del giornale.
 
-Pattern indicativi per `clipping`:
+L'analisi calcola:
 
-- `foglio`
-- `Superficie`
-- `Tiratura`
-- `Diffusione`
-- `Lettori`
-- `Dir. Resp.`
-- `Quotidiano`
+- area relativa occupata dall'articolo nella miniatura
+- posizione verticale:
+  - `top`
+  - `middle`
+  - `bottom`
+- posizione orizzontale:
+  - `left`
+  - `center`
+  - `right`
+- zona combinata:
+  - `top_left`
+  - `top_center`
+  - `top_right`
+  - `middle_left`
+  - `middle_center`
+  - `middle_right`
+  - `bottom_left`
+  - `bottom_center`
+  - `bottom_right`
+- prominence stimata
 
-Pattern indicativi per `web`:
+La prominence usa:
 
-- `http://`
-- `https://`
-- `newsletter`
-- `Condividi`
-- `Twitta`
-- `ultimi articoli`
-- `articoli correlati`
+- numero pagina originale
+- area relativa occupata
+- posizione verticale nella pagina
 
-### 6. `visualization`
+Esempio metadata:
+
+```json
+{
+  "technical_image": true,
+  "exclude_from_article_media": true,
+  "thumbnail_detection_method": "dark_pixel_bbox",
+  "detected_article_marker": true,
+  "article_marker_bbox_in_thumbnail": [
+    0.62,
+    0.12,
+    0.91,
+    0.38
+  ],
+  "original_page_relative_area": 0.075,
+  "original_page_vertical_area": "top",
+  "original_page_horizontal_area": "right",
+  "original_page_zone": "top_right",
+  "original_page_coarse_vertical_area": "top_area",
+  "original_page_coarse_horizontal_area": "right",
+  "original_page_for_prominence": 8,
+  "estimated_prominence": "medium",
+  "prominence_score": 0.48
+}
+```
+
+Questa prominence non è un reputation score.
+
+È solo una feature di layout editoriale.
+
+---
+
+### 9. `visualization`
 
 Contiene strumenti di debug visuale.
 
@@ -244,37 +559,7 @@ Output:
 PNG con bounding box e label
 ```
 
-## Convenzione bounding box
-
-La convenzione interna usata nei `PageRecord` è:
-
-```text
-[x0, y0, x1, y1]
-```
-
-Coordinate:
-
-```text
-origine: top-left
-unità: punti PDF
-asse Y: cresce verso il basso
-```
-
-Docling può produrre coordinate con origine diversa.
-
-Nel caso osservato, Docling usa:
-
-```json
-{
-  "l": 15.75,
-  "t": 810.36,
-  "r": 90.39,
-  "b": 791.55,
-  "coord_origin": "BOTTOMLEFT"
-}
-```
-
-Il `PageNormalizer` converte queste coordinate nella convenzione interna usando l'altezza della pagina PDF.
+---
 
 ## Output generato
 
@@ -283,7 +568,7 @@ Gli output generati sono organizzati fuori da `src`.
 Struttura consigliata:
 
 ```text
-data/
+result/
 └── nome_documento/
     ├── raw/
     │   └── docling.json
@@ -292,20 +577,25 @@ data/
     │   ├── page_002.json
     │   └── ...
     └── debug/
-        ├── page_001_bbox.png
-        ├── page_002_bbox.png
+        ├── page_001.png
+        ├── page_002.png
         └── ...
 ```
 
-## Esempio di `PageRecord`
+---
+
+## Esempio `PageRecord`
 
 ```json
 {
   "document_id": "Evidenze Rassegna 17012025.pdf",
   "pdf_page": 2,
   "page_type": "clipping",
+  "section": "STAMPA_LOCALE",
+  "page_width": 595.0,
+  "page_height": 842.0,
   "source": {
-    "name": null,
+    "name": "Metropolis",
     "type": "newspaper",
     "publication_date": "2025-01-17",
     "original_page": 8,
@@ -318,37 +608,91 @@ data/
   },
   "regions": [
     {
-      "type": "header_metadata",
-      "text": "da pag.  8 / 17-GEN-2025 foglio 1",
+      "type": "location",
+      "text": "art Gragnano",
       "bbox": [
-        15.75,
-        31.63,
-        90.39,
-        50.44
+        124.0,
+        58.33,
+        191.66,
+        74.33
       ],
-      "raw_label": "page_header",
-      "provenance": [
-        {
-          "self_ref": "#/texts/10",
-          "collection": "texts",
-          "docling_label": "page_header",
-          "charspan": [
-            0,
-            33
-          ],
-          "raw_bbox": {
-            "l": 15.75,
-            "t": 810.36,
-            "r": 90.39,
-            "b": 791.55,
-            "coord_origin": "BOTTOMLEFT"
+      "raw_label": "text",
+      "metadata": {
+        "location_name": "Gragnano",
+        "municipalities": [
+          {
+            "comune": "Gragnano",
+            "provincia": "Napoli",
+            "regione": "Campania",
+            "matched_name": "gragnano"
           }
-        }
-      ]
+        ]
+      }
+    },
+    {
+      "type": "header_metadata",
+      "text": "da pag. 8 / 17-GEN-2025 foglio 1",
+      "metadata": {
+        "original_page": 8,
+        "publication_date": "2025-01-17",
+        "sheet_current": 1,
+        "sheet_total": null
+      }
+    },
+    {
+      "type": "article_position_thumbnail",
+      "bbox": [
+        420.0,
+        690.0,
+        560.0,
+        810.0
+      ],
+      "metadata": {
+        "technical_image": true,
+        "exclude_from_article_media": true,
+        "detected_article_marker": true,
+        "original_page_relative_area": 0.075,
+        "original_page_zone": "top_right",
+        "estimated_prominence": "medium",
+        "prominence_score": 0.48
+      }
     }
   ]
 }
 ```
+
+---
+
+## Comandi utili
+
+### Parsing completo
+
+```bash
+PYTHONPATH=src pixi run python -m press_reputation.cli parse "Data/2025/Gennaio/Evidenze Rassegna 17012025.pdf"
+```
+
+### Parsing con immagini debug
+
+```bash
+PYTHONPATH=src pixi run python -m press_reputation.cli parse "Data/2025/Gennaio/Evidenze Rassegna 17012025.pdf" --debug-bbox
+```
+
+### Output atteso
+
+```text
+result/
+└── Evidenze_Rassegna_17012025/
+    ├── raw/
+    │   └── docling.json
+    ├── pages/
+    │   ├── page_001.json
+    │   └── page_002.json
+    └── debug/
+        ├── page_001.png
+        └── page_002.png
+```
+
+---
 
 ## Dipendenze principali
 
@@ -368,37 +712,7 @@ Dipendenze principali:
 - pytest
 - ruff
 
-## Comandi utili
-
-### Verifica import dei modelli
-
-```bash
-pixi run python -c "from press_reputation.models.page import PageRecord; print(PageRecord(document_id='test.pdf', pdf_page=1).model_dump())"
-```
-
-### Parsing raw con Docling
-
-```bash
-pixi run python -c "from pathlib import Path; from press_reputation.parsers.docling_parser import DoclingParser; p=DoclingParser(); d=p.extract(Path('Data/2025/Gennaio/Evidenze Rassegna 17012025.pdf')); p.save_raw_json(d, Path('data/test_doc/raw/docling.json')); print('ok')"
-```
-
-### Normalizzazione in `PageRecord`
-
-```bash
-pixi run python -c "import json; from pathlib import Path; from press_reputation.normalization import PageNormalizer; doc=json.loads(Path('data/test_doc/raw/docling.json').read_text()); pages=PageNormalizer().normalize(doc, 'Evidenze Rassegna 17012025.pdf'); print(pages[0].model_dump_json(indent=2))"
-```
-
-### Salvataggio JSON per pagina
-
-```bash
-pixi run python -c "import json; from pathlib import Path; from press_reputation.normalization import PageNormalizer; raw=Path('data/test_doc/raw/docling.json'); doc=json.loads(raw.read_text()); pages=PageNormalizer().normalize(doc, 'Evidenze Rassegna 17012025.pdf'); out=Path('data/test_doc/pages'); out.mkdir(parents=True, exist_ok=True); [Path(out / f'page_{p.pdf_page:03d}.json').write_text(p.model_dump_json(indent=2), encoding='utf-8') for p in pages]; print('ok')"
-```
-
-### Generazione immagini debug con bounding box
-
-```bash
-pixi run python -c "import json; from pathlib import Path; from press_reputation.normalization import PageNormalizer; from press_reputation.visualization import render_page_bboxes; pdf=Path('Data/2025/Gennaio/Evidenze Rassegna 17012025.pdf'); doc=json.loads(Path('data/test_doc/raw/docling.json').read_text()); pages=PageNormalizer().normalize(doc, pdf.name); out=Path('data/test_doc/debug'); [render_page_bboxes(pdf, p, out / f'page_{p.pdf_page:03d}_bbox.png') for p in pages]; print('ok')"
-```
+---
 
 ## Stato attuale
 
@@ -409,18 +723,33 @@ Implementato:
 - parser Docling
 - esportazione raw JSON Docling
 - normalizzazione in `PageRecord`
+- feature extraction per regioni
+- feature extraction per pagine
+- classificazione regioni
+- classificazione pagina
+- lookup locali ottimizzati
+- riconoscimento testate giornalistiche
+- riconoscimento agenzie di rassegna stampa
+- riconoscimento comuni italiani
 - estrazione metadata deterministica
-- classificazione pagina deterministica
+- riconoscimento pagina indice
+- riconoscimento location sopra titolo
+- riconoscimento sottotitolo contestuale
+- riconoscimento miniatura posizione articolo
+- analisi leggera della miniatura posizione articolo
+- stima prominence editoriale basata su layout
 - visualizzazione bounding box su PNG
 
 Non implementato:
 
-- CLI completa
 - test automatici completi
 - ricostruzione articoli multipagina
+- benchmark con altri parser
 - analisi semantica
 - sentiment analysis
 - reputation scoring
+
+---
 
 ## Principi attuali
 
@@ -433,3 +762,4 @@ Non implementato:
 - Se un elemento non è riconosciuto, viene marcato come `unknown`.
 - I metadata non vengono inventati.
 - Non vengono usati LLM o API esterne.
+- Le informazioni di layout editoriale non sono sentiment score.

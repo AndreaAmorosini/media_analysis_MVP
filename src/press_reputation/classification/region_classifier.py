@@ -23,6 +23,8 @@ class RegionClassifier:
 
             if features.municipalities:
                 region.metadata["municipalities"] = features.municipalities
+                
+            self.enrich_region_metadata(region, features)
 
             region.type = self.classify(region, page, features)
     
@@ -41,18 +43,21 @@ class RegionClassifier:
         if features.is_known_newspaper:
             return RegionType.SOURCE_NAME
         
-        if "da pag" in features.raw_text_lower and features.has_foglio:
+        if self.like_composite_clipping_metadata(features):
             return RegionType.HEADER_METADATA
-
+        
+        if self.like_location(features):
+            return RegionType.LOCATION
+        
         if "da pag" in features.raw_text_lower:
             return RegionType.ORIGINAL_PAGE
 
         if features.has_foglio:
             return RegionType.CLIPPING_SHEET
-
+        
         if self.like_publication_date(features):
             return RegionType.PUBLICATION_DATE
-        
+                
         if self.like_header_metadata(features):
             return RegionType.HEADER_METADATA
         
@@ -64,7 +69,7 @@ class RegionClassifier:
         
         if self.like_related_content(features):
             return RegionType.RELATED_CONTENT
-        
+                
         if self.like_article_title(features):
             return RegionType.ARTICLE_TITLE
         
@@ -72,6 +77,93 @@ class RegionClassifier:
             return RegionType.ARTICLE_BODY
         
         return region.type  # Mantieni il tipo originale se non corrisponde a nessuna categoria nota
+    
+    def enrich_region_metadata(self, region: Region, features: RegionFeatures) -> None:
+        text = region.text or ""
+        
+        original_page = self.extract_original_page(text)
+        publication_date = self.extract_publication_date_text(text)
+        sheet_info = self.extract_sheet_info(text)
+        
+        if original_page is not None:
+            region.metadata["original_page"] = original_page
+            
+        if publication_date is not None:
+            region.metadata["publication_date"] = publication_date
+            
+        if sheet_info is not None:
+            region.metadata["sheet_current"] = sheet_info[0]
+            region.metadata["sheet_total"] = sheet_info[1]
+            
+    @staticmethod
+    def extract_original_page(text: str) -> int | None:
+        import re
+
+        match = re.search(r"\bda\s+pag\.?\s+(\d+)", text, flags=re.IGNORECASE)
+
+        if not match:
+            return None
+
+        return int(match.group(1))
+
+
+    @staticmethod
+    def extract_sheet_info(text: str) -> tuple[int, int | None] | None:
+        import re
+
+        match = re.search(
+            r"\bfoglio\s+(\d+)(?:\s*/\s*(\d+))?",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            return None
+
+        current = int(match.group(1))
+        total = int(match.group(2)) if match.group(2) else None
+
+        return current, total
+
+
+    @staticmethod
+    def extract_publication_date_text(text: str) -> str | None:
+        import re
+        from datetime import date
+
+        months = {
+            "GEN": 1,
+            "FEB": 2,
+            "MAR": 3,
+            "APR": 4,
+            "MAG": 5,
+            "GIU": 6,
+            "LUG": 7,
+            "AGO": 8,
+            "SET": 9,
+            "OTT": 10,
+            "NOV": 11,
+            "DIC": 12,
+        }
+
+        match = re.search(
+            r"\b(\d{1,2})-([A-Z]{3})-(\d{4})\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            return None
+
+        day = int(match.group(1))
+        month = months.get(match.group(2).upper())
+        year = int(match.group(3))
+
+        if month is None:
+            return None
+
+        return date(year, month, day).isoformat()
+            
     
     @staticmethod
     def like_publication_date(features: RegionFeatures) -> bool:
@@ -87,6 +179,45 @@ class RegionClassifier:
         if features.text_length > 40:
             return False
 
+        return True
+    
+    @staticmethod
+    def like_composite_clipping_metadata(features: RegionFeatures) -> bool:
+        text = features.raw_text_lower
+        
+        has_original_page = "da pag" in text
+        return sum([has_original_page, features.has_foglio, features.has_date]) >= 2
+    
+    @staticmethod
+    def like_location(features: RegionFeatures) -> bool:
+        if features.municipality_count == 0:
+            return False
+        
+        if features.word_count > 5:
+            return False
+        
+        if features.text_length > 100:
+            return False
+        
+        if features.has_foglio or features.has_surface:
+            return False
+        
+        if features.has_tiratura or features.has_diffusione or features.has_lettori:
+            return False
+        
+        if features.has_dir_resp or features.has_quotidiano:
+            return False
+        
+        if features.has_url:
+            return False
+        
+        if features.has_newsletter or features.has_related_marker:
+            return False
+        
+        if features.has_navigation_marker:
+            return False
+        
+        
         return True
     
     @staticmethod

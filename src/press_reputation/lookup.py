@@ -63,16 +63,16 @@ def press_review_provider_index() -> dict[str, dict[str, Any]]:
 
 @lru_cache
 def municipalities_index() -> dict[str, dict[str, Any]]:
-    path = RESOURCE_DIR / "municipalities.json"
+    path = RESOURCE_DIR / "comuni_italiani.json"
     
     if not path.exists():
         return {}
     
     data = load_json(path)
-    result: dict[str, dict[str, Any]] = {}
+    result: dict[str, list[dict[str, Any]]] = {}
     
-    for item in data.get("comuni", []):
-        name = item.get("nome")
+    for item in data:
+        name = item.get("comune")
         if not name:
             continue
         
@@ -126,23 +126,30 @@ def find_municipalities(text: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     
+    candidates: set[str] = set()
+    
     for token in tokens:
-        candidates = first_token_index.get(token, set())
+        candidates.update(first_token_index.get(token, set()))
         
-        for candidate in candidates:
-            pattern = rf"\b{re.escape(candidate)}\b"
+    ordered_candidates = sorted(
+        candidates, key=lambda value: len(value.split()), reverse=True
+    )
+    
+    for candidate in ordered_candidates:
+        pattern = rf"\b{re.escape(candidate)}\b"
+        
+        if not re.search(pattern, normalized):
+            continue
+        
+        for item in municipalities.get(candidate, []):
+            identity = (item.get("comune", ""), item.get("provincia", ""), item.get("regione", ""))
             
-            if not re.search(pattern, normalized):
+            if identity in seen:
                 continue
             
-            for item in municipalities.get(candidate, []):
-                identity = (item.get("comune", ""), item.get("provincia", ""), item.get("regione", ""))
-                
-                if identity in seen:
-                    continue
-                
-                seen.add(identity)
-                found.append(item)
+            seen.add(identity)
+            enriched_item = {**item, "matched_name": candidate}
+            found.append(enriched_item)
                 
     return found
     
