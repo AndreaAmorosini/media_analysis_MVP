@@ -1,6 +1,7 @@
 import re
 from datetime import date
 from typing import Optional
+from urllib.parse import urlparse
 
 from press_reputation.models.page import (ClippingInfo, PageRecord, SourceType, RegionType)
 
@@ -46,6 +47,9 @@ class MetadataExtractor:
         if url:
             page.source.url = url
             page.source.type = SourceType.WEB
+            
+            if page.source.name is None:
+                page.source.name = self.source_name_from_url(url)
 
         if section:
             page.section = section
@@ -191,3 +195,17 @@ class MetadataExtractor:
                 return normalized.upper().replace(" ", "_")
 
         return None
+    
+    @staticmethod
+    def source_name_from_url(url: str) -> str | None:
+        host = urlparse(url).netloc.lower()
+        
+        if not host:
+            return None
+        
+        host = host.removeprefix("www.")
+        
+        if not host:
+            return None
+        
+        return host

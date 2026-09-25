@@ -21,6 +21,9 @@ class RegionFeatures(BaseModel):
     has_dir_resp: bool = False
     has_quotidiano: bool = False
     
+    has_author_marker: bool = False
+    has_ad_marker: bool = False
+    
     has_newsletter: bool = False
     has_share_marker: bool = False
     has_related_marker: bool = False
@@ -86,6 +89,18 @@ class RegionFeatureExtractor:
             has_date=bool(
                 re.search(r"\b\d{1,2}[-/][a-zA-Z]{3}[-/]\d{4}\b", text)
                 or re.search(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", text)
+            ),
+            has_author_marker=(
+                lower.strip().startswith("di ") or lower.strip().startswith("da" ) or "a cura di " in lower or lower.strip() in {"redazione", "la redazione"}
+            ),
+            has_ad_marker=(
+                "pubblicità" in lower
+                or "advertisement" in lower
+                or "sponsored" in lower
+                or "sponsorizzato" in lower
+                or "annuncio" in lower
+                or "publicita" in lower
+                or lower.strip() in {"adv", "ads"}
             ),
             has_foglio="foglio" in lower,
             has_surface="superficie" in lower,

@@ -2,8 +2,8 @@ from press_reputation.features import RegionFeatureExtractor, RegionFeatures
 from press_reputation.models.page import PageRecord, Region, RegionType
 
 PROTECTED_REGION_TYPES = {
+    RegionType.CAPTION,
     RegionType.ARTICLE_POSITION_THUMBNAIL,
-    RegionType.CAPTION
 }
 
 class RegionClassifier:
@@ -15,6 +15,7 @@ class RegionClassifier:
     def enrich(self, page: PageRecord) -> PageRecord:
         self.classify_individual_regions(page)
         self.classify_contextual_regions(page)
+        self.enforce_single_title_and_subtitle(page)
         return page
     
     def classify_individual_regions(self, page: PageRecord) -> None:
@@ -29,50 +30,58 @@ class RegionClassifier:
             region.type = self.classify(region, page, features)
     
     def classify(self, region: Region, page: PageRecord, features: RegionFeatures) -> RegionType:
+        #L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
         if region.type in PROTECTED_REGION_TYPES:
             return region.type
-        
-        features = self.feature_extractor.extract(region, page)
-        
+                
+        if region.type == RegionType.CAPTION:
+            return RegionType.CAPTION
+
         if self.like_article_position_thumbnail(features):
             return RegionType.ARTICLE_POSITION_THUMBNAIL
-        
+
+        if region.type == RegionType.ARTICLE_POSITION_THUMBNAIL:
+            return RegionType.ARTICLE_POSITION_THUMBNAIL
+
+        if region.type == RegionType.IMAGE:
+            return RegionType.IMAGE
+
         if features.is_press_review_provider:
             return RegionType.PRESS_REVIEW_PROVIDER
-        
+
         if features.is_known_newspaper:
             return RegionType.SOURCE_NAME
-        
+
         if self.like_composite_clipping_metadata(features):
             return RegionType.HEADER_METADATA
-        
-        if self.like_location(features):
-            return RegionType.LOCATION
-        
+
         if "da pag" in features.raw_text_lower:
             return RegionType.ORIGINAL_PAGE
 
         if features.has_foglio:
             return RegionType.CLIPPING_SHEET
-        
+
         if self.like_publication_date(features):
             return RegionType.PUBLICATION_DATE
-                
-        if self.like_header_metadata(features):
-            return RegionType.HEADER_METADATA
-        
-        if self.like_footer(features):
-            return RegionType.FOOTER
-        
+
+        if self.like_location(features):
+            return RegionType.LOCATION
+
+        if self.like_advertisement(features):
+            return RegionType.ADVERTISEMENT
+
         if self.like_navigation(features):
             return RegionType.NAVIGATION
-        
+
         if self.like_related_content(features):
             return RegionType.RELATED_CONTENT
-                
+
+        if self.like_author(features):
+            return RegionType.AUTHOR
+
         if self.like_article_title(features):
             return RegionType.ARTICLE_TITLE
-        
+
         if self.like_article_body(features):
             return RegionType.ARTICLE_BODY
         
@@ -163,7 +172,230 @@ class RegionClassifier:
             return None
 
         return date(year, month, day).isoformat()
+    
+    def enforce_single_title_and_subtitle(self, page: PageRecord) -> None:
+        if self.is_continuation_page(page):
+            for region in page.regions:
+                if region.type == RegionType.ARTICLE_SUBTITLE or region.type == RegionType.ARTICLE_TITLE:
+                    region.type = RegionType.UNKNOWN
+            return
+
+        
+        title_candidates = [
+            region for region in page.regions if region.type == RegionType.ARTICLE_TITLE and region.bbox and len(region.bbox) == 4
+        ]
+        
+        if not title_candidates:
+            return
+        
+        best_title = max(title_candidates, key=lambda region: self.title_score(region, page))
+        
+        for region in title_candidates:
+            if region is not best_title:
+                region.type = RegionType.UNKNOWN
+                
+        subtitle_candidates = self.find_subtitle_candidates(page, best_title)
+        
+        if not subtitle_candidates:
+            return
+        
+        best_subtitle = max(subtitle_candidates, key=lambda region: self.subtitle_score(region, best_title))
+        
+        for region in subtitle_candidates:
+            if region is best_subtitle:
+                region.type = RegionType.ARTICLE_SUBTITLE
+            elif region.type == RegionType.ARTICLE_SUBTITLE:
+                region.type = RegionType.UNKNOWN
+                
+                
+    def title_score(self, region: Region, page: PageRecord) -> float:
+        features = self.feature_extractor.extract(region, page)
+
+        score = 0.0
+
+        if features.raw_label == "section_header":
+            score += 2.0
+
+        if 3 <= features.word_count <= 18:
+            score += 2.0
+
+        if features.bbox_width:
+            score += min(features.bbox_width / 300, 2.0)
+
+        if features.bbox_height:
+            score += min(features.bbox_height / 40, 1.5)
+
+        if features.is_known_newspaper:
+            score -= 5.0
+
+        if features.municipality_count > 0 and features.word_count <= 5:
+            score -= 4.0
+
+        if features.has_foglio or features.has_surface:
+            score -= 5.0
+
+        return score
+    
+    def find_subtitle_candidates(self, page: PageRecord, title: Region) -> list[Region]:
+        candidates = []
+
+        if not title.bbox:
+            return candidates
+
+        title_x0, title_y0, title_x1, title_y1 = title.bbox
+
+        for region in page.regions:
+            if region is title:
+                continue
+
+            if region.type not in {
+                RegionType.UNKNOWN,
+                RegionType.ARTICLE_BODY,
+                RegionType.ARTICLE_SUBTITLE,
+            }:
+                continue
+
+            if not region.bbox or len(region.bbox) != 4:
+                continue
+
+            features = self.feature_extractor.extract(region, page)
             
+            if (features.bbox_height is not None and features.bbox_height > 80) or features.word_count > 35:
+                return False
+            
+            if not self.like_subtitle_candidate(features):
+                continue
+
+            x0, y0, x1, y1 = region.bbox
+
+            horizontal_overlap = self.overlap_ratio(title_x0, title_x1, x0, x1)
+
+            if horizontal_overlap < 0.25:
+                continue
+
+            gap_above = title_y0 - y1
+            gap_below = y0 - title_y1
+
+            is_near_above = 0 <= gap_above <= 50
+            is_near_below = 0 <= gap_below <= 60
+
+            if is_near_above or is_near_below:
+                candidates.append(region)
+
+        return candidates
+    
+    def subtitle_score(self, region: Region, title: Region) -> float:
+        if not region.bbox or not title.bbox:
+            return 0.0
+
+        x0, y0, x1, y1 = region.bbox
+        tx0, ty0, tx1, ty1 = title.bbox
+
+        score = 0.0
+
+        overlap = self.overlap_ratio(tx0, tx1, x0, x1)
+        score += overlap * 2.0
+
+        gap_above = ty0 - y1
+        gap_below = y0 - ty1
+
+        if 0 <= gap_above <= 80:
+            score += 1.5
+
+        if 0 <= gap_below <= 100:
+            score += 1.2
+
+        width = x1 - x0
+        title_width = tx1 - tx0
+
+        if title_width > 0:
+            width_ratio = min(width / title_width, 1.5)
+            score += width_ratio
+
+        return score
+    
+    @staticmethod
+    def overlap_ratio(a0: float, a1: float, b0: float, b1: float) -> float:
+        overlap = max(0.0, min(a1, b1) - max(a0, b0))
+        base = max(min(a1 - a0, b1 - b0), 1.0)
+        
+        return overlap / base
+    
+    @staticmethod
+    def like_subtitle_candidate(features: RegionFeatures) -> bool:
+        if features.word_count < 6:
+            return False
+
+        if features.word_count > 35:
+            return False
+
+        if features.text_length > 260:
+            return False
+
+        if features.raw_label not in {"text", "section_header"}:
+            return False
+
+        if features.has_url:
+            return False
+
+        if features.municipality_count > 0 and features.word_count <= 5:
+            return False
+
+        if features.has_foglio or features.has_surface:
+            return False
+
+        if features.has_tiratura or features.has_diffusione or features.has_lettori:
+            return False
+
+        if features.has_newsletter or features.has_related_marker:
+            return False
+
+        if features.uppercase_ratio > 0.85:
+            return False
+
+        return True
+        
+    @staticmethod
+    def like_advertisement(features: RegionFeatures) -> bool:
+        if features.has_ad_marker:
+            return True
+        
+        if features.raw_text_lower.strip() in {"adv", "ads"}:
+            return True
+        
+        return False
+    
+    @staticmethod
+    def like_author(features: RegionFeatures) -> bool:
+        if features.has_foglio or features.has_surface:
+            return False
+
+        if features.has_tiratura or features.has_diffusione or features.has_lettori:
+            return False
+
+        if features.has_dir_resp or features.has_quotidiano:
+            return False
+
+        if features.has_url:
+            return False
+
+        if features.municipality_count > 0:
+            return False
+
+        if features.bbox_width is not None and features.bbox_height is not None:
+            if features.bbox_width < 20 and features.bbox_height > 150:
+                return False
+
+        if features.uppercase_ratio > 0.85:
+            return False
+
+        if not features.has_author_marker:
+            return False
+
+        if features.word_count < 2 or features.word_count > 8:
+            return False
+
+        return True
     
     @staticmethod
     def like_publication_date(features: RegionFeatures) -> bool:
@@ -193,31 +425,39 @@ class RegionClassifier:
         if features.municipality_count == 0:
             return False
         
+        if "," in features.raw_text_lower:
+            return False
+
+        if ":" in features.raw_text_lower:
+            return False
+
         if features.word_count > 5:
             return False
-        
+
         if features.text_length > 100:
             return False
-        
-        if features.has_foglio or features.has_surface:
+
+        if features.is_known_newspaper or features.is_press_review_provider:
             return False
-        
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-        
-        if features.has_dir_resp or features.has_quotidiano:
-            return False
-        
+
         if features.has_url:
             return False
-        
+
+        if features.has_foglio or features.has_surface:
+            return False
+
+        if features.has_tiratura or features.has_diffusione or features.has_lettori:
+            return False
+
+        if features.has_dir_resp or features.has_quotidiano:
+            return False
+
         if features.has_newsletter or features.has_related_marker:
             return False
-        
-        if features.has_navigation_marker:
+
+        if features.has_author_marker:
             return False
-        
-        
+
         return True
     
     @staticmethod
@@ -424,3 +664,10 @@ class RegionClassifier:
                 return previous
 
         return None
+    
+    def is_continuation_page(self, page: PageRecord) -> bool:
+        return (
+            page.clipping is not None
+            and page.clipping.sheet_current is not None
+            and page.clipping.sheet_current > 1
+        )
