@@ -26,7 +26,7 @@ Notizia ──► embedding ──► confronto con i testi dei subreddit ──
 ## Struttura del progetto
 
 ```
-autentica/
+subreddit_recommender/
 ├── README.md                  questo file
 ├── requirements.txt           dipendenze Python
 ├── data/
@@ -38,7 +38,7 @@ autentica/
 │   ├── analisi_commenti.py    applica la pulizia e conta gli scarti per regola
 │   ├── esempi_commenti.py     esempi reali per ogni regola
 │   └── output/                risultati (Parquet, non versionati)
-└── reddit/                    dump Reddit (non versionato)
+└── reddit/                    dump Reddit (facoltativo, non versionato: vedi sotto)
 ```
 
 `src/` contiene solo codice che deve funzionare con qualsiasi sorgente. Le cartelle numerate
@@ -53,7 +53,17 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Gli script si lanciano dalla cartella principale del progetto:
+Il dump Reddit (~38 GB) non è nel repository. Gli script lo cercano in:
+1. la variabile d'ambiente `REDDIT_DUMP`, se impostata (cartella che contiene `comments/` e `submissions/`);
+2. altrimenti `reddit/reddit_parquet/` dentro questa cartella (va bene anche un link simbolico).
+
+```bash
+export REDDIT_DUMP=/percorso/del/dump/reddit_parquet
+# oppure
+ln -s /percorso/del/dump/reddit reddit
+```
+
+Gli script si lanciano da questa cartella (`subreddit_recommender/`):
 
 ```bash
 .venv/bin/python 01_analisi/analisi_commenti.py

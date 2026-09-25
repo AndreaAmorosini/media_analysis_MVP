@@ -6,9 +6,12 @@ Subreddit utili: lingua "it" o "misto" nel CSV, al massimo il 20% di post NSFW.
 La prima volta legge il dump (~25 s) e salva i commenti grezzi in 01_analisi/output/;
 le volte successive riparte da lì (`--rileggi` per rileggere il dump).
 Salva anche i commenti con il motivo di scarto, per `esempi_commenti.py`.
+
+Il dump si cerca in $REDDIT_DUMP, altrimenti in reddit/reddit_parquet dentro il progetto.
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,6 +24,7 @@ from pulizia import pulisci, riepilogo  # noqa: E402
 from sorgenti import commenti_da_dump, subreddit_da_csv  # noqa: E402
 
 OUTPUT = ROOT / "01_analisi" / "output"
+DUMP = Path(os.environ.get("REDDIT_DUMP", ROOT / "reddit" / "reddit_parquet"))
 
 
 def main() -> None:
@@ -35,7 +39,7 @@ def main() -> None:
     else:
         t = time.time()
         subs = subreddit_da_csv(ROOT / "data" / "subreddit_italiani.csv")
-        raw = commenti_da_dump(ROOT / "reddit" / "reddit_parquet" / "comments", subs)
+        raw = commenti_da_dump(DUMP / "comments", subs)
         raw.to_parquet(grezzi)
         print(f"letti {len(raw)} commenti di {len(subs)} subreddit in {time.time() - t:.0f}s")
 
