@@ -1,0 +1,269 @@
+subreddit,quota_it,lingua,n_commenti,n_commenti_it,n_autori,n_post,quota_it_post,quota_nsfw,quota_testuali,mediana_commenti_post,top_domini,nome_italiano,da_verificare
+Italia,0.593,misto,109776,57020.0,16043,1632,0.477,0.01,0.54,7.0," (138), youtube.com (23), open.online (18), ansa.it (17), youtu.be (17)",True,False
+CasualIT,0.622,it,87145,44831.0,11585,1492,0.678,0.03,1.0,14.0,,False,False
+sfoghi,0.648,it,68107,39645.0,10988,965,0.819,0.02,1.0,13.0,,False,False
+TeenagersITA,0.617,it,71800,30835.0,6828,1438,0.575,0.02,0.4,10.0," (16), youtube.com (11), youtu.be (3), forms.gle (3), open.spotify.com (2)",True,False
+italy,0.579,misto,42901,22419.0,7785,711,0.3,0.01,0.59,1.0,"ilpost.it (19),  (19), youtube.com (14), youtu.be (9), corriere.it (8)",True,False
+ItaliaPersonalFinance,0.589,misto,42071,22374.0,7284,820,0.511,0.0,0.84,11.0,"ilsole24ore.com (3), milanofinanza.it (2), youtu.be (2),  (2), open.spotify.com (1)",True,False
+domandaonesta,0.611,it,39516,20915.0,8310,387,0.501,0.04,0.68,14.0, (54),False,False
+ItalyMotori,0.563,misto,30159,14951.0,5702,515,0.531,0.0,0.57,10.0," (21), play.google.com (2), youtube.com (2), /r/italymotori/comments/1u6k84y/acquisto_furgone_camperizzato_quanto_è_grave/ (1), media.stellantis.com (1)",True,False
+ItaliaCareerAdvice,0.62,it,20229,11377.0,5382,648,0.598,0.0,0.84,5.0," (53), support.google.com (1), anthropic.com (1), ilsole24ore.com (1), science.org (1)",True,False
+italygames,0.599,misto,21116,10905.0,4715,337,0.505,0.0,0.55,8.0,"youtube.com (17),  (16), youtu.be (2), docs.google.com (1), /r/italygames/comments/1tx1liv/backrooms_experience/ (1)",True,False
+Universitaly,0.614,it,14323,7986.0,3805,650,0.502,0.0,0.93,3.0,"forms.gle (6), docs.google.com (3), politicamagazine.it (2), gofile.io (1), qualtricsxmtnbnwl8yv.qualtrics.com (1)",True,False
+oknotizie,0.593,misto,13835,7421.0,2487,355,0.223,0.0,0.0,6.0,"ansa.it (34), lantidiplomatico.it (23), open.online (22), rainews.it (17), ilfattoquotidiano.it (16)",False,False
+sentimentalITA,0.696,it,11189,6831.0,2419,262,0.802,0.0,0.81,7.0," (45), t.me (1)",True,False
+Avvocati,0.641,it,10012,5952.0,2475,314,0.738,0.0,0.86,6.0," (16), ilprocessodigitale.it (5), youtube.com (1), bologna.repubblica.it (1), github.com (1)",False,False
+consigli,0.661,it,8520,5016.0,2533,231,0.799,0.03,0.97,10.0,,False,False
+psicologia,0.726,it,7427,5010.0,1916,388,0.865,0.04,0.99,5.0,youtu.be (1),False,False
+VintedItalia,0.621,it,9392,4803.0,2841,324,0.682,0.01,0.29,7.0," (2), vinted.it (1)",True,False
+Seghe_Vip,0.506,misto,39203,4458.0,4504,11403,0.326,0.06,0.63,1.0," (299), redgifs.com (14), t.me (6), tayleaks.com (3), /r/seghe_vip/comments/1u1ner0/chi_vi_fareste_di_più/ (1)",False,False
+ItalyHardware,0.578,misto,7799,4034.0,1333,262,0.472,0.0,0.67,9.0," (17), videocardz.com (3), a.co (1), tomshardware.com (1), digitalfoundry.net (1)",True,False
+commercialisti,0.577,misto,6780,3477.0,1507,218,0.46,0.0,0.81,3.0," (26), pierodibello.com (1)",False,False
+TuttoItalia,0.605,it,5987,3219.0,1669,178,0.225,0.0,0.0,4.0,"ansa.it (19), open.online (16), rainews.it (13), tg24.sky.it (12), hwupgrade.it (11)",True,False
+litigi,0.584,misto,6510,3201.0,530,10,0.444,0.0,0.7,10.0,youtube.com (2),False,False
+ItalyFitness,0.587,misto,6440,3194.0,1831,201,0.554,0.01,0.6,7.0," (4), /r/italyfitness/comments/1u2w1fs/lat_machine_monobraccio_check_esecuzione/ (1), /r/italyfitness/comments/1u6etuw/back_squat_form_check/ (1), /r/italyfitness/comments/1u48gs5/oggi_pr_di_stacco_260kg_bw_817kg/ (1), /r/italyfitness/comments/1tvofes/ho_una_buona_esecuzione/ (1)",True,False
+PensieriItaliani,0.613,it,5792,3178.0,1665,72,0.549,0.0,0.42,3.0," (11), youtube.com (4), ilfattoquotidiano.it (1), fiumana.substack.com (1), rainews.it (1)",True,False
+LinkedInCringeIT,0.611,it,5916,3114.0,2186,74,0.538,0.01,0.38,11.5," (4), instagram.com (1)",False,False
+istrutturare,0.568,misto,5297,2707.0,1700,152,0.58,0.0,0.59,6.0, (6),False,False
+scimmieinborsa,0.529,misto,6111,2659.0,1455,196,0.395,0.0,0.59,8.0," (1), i.imgur.com (1), youtube.com (1), finanza.economia-italia.com (1)",False,False
+Libri,0.631,it,4250,2376.0,1381,145,0.601,0.0,0.79,4.0,"erdrago.gumroad.com (2), vincentrusso.substack.com (1), carmillaonline.com (1), indiscreto.org (1), amzn.eu (1)",False,False
+techcompenso,0.611,it,4125,2349.0,1281,55,0.463,0.0,0.51,22.0," (10), ansa.it (1)",False,False
+xxitaly,0.724,it,3105,2098.0,859,111,0.632,0.07,0.79,1.0, (11),True,False
+ItalyInformatica,0.595,misto,3917,2085.0,1583,229,0.343,0.0,0.85,1.0,"github.com (3), ilpost.it (1), i.imgur.com (1), simonwillison.net (1), youtube.com (1)",True,False
+italiabad,0.58,misto,3595,1821.0,1628,72,0.389,0.0,0.11,6.0,"youtube.com (1),  (1)",True,False
+IA_Italia,0.633,it,3021,1741.0,944,96,0.447,0.01,0.61,3.5," (13), lucamastro.it (2), br0t0s.bearblog.dev (1), open.substack.com (1), voice-video-connect-8.preview.emergentagent.com (1)",True,False
+cuckold_italiani,0.477,misto,6522,1575.0,1010,684,0.35,1.0,0.55,1.0,"redgifs.com (40),  (24), yuvideos.com (1), v3.redgifs.com (1)",True,True
+italiandick,0.457,misto,8949,1543.0,1405,856,0.356,1.0,0.0,2.0,"redgifs.com (25),  (12), i.redgifs.com (1)",True,True
+ItaliaMeme,0.614,it,2862,1519.0,1069,40,0.368,0.0,0.05,1.0,"youtube.com (8), forms.gle (1), youtu.be (1)",True,False
+LavoroSenzaFiltri,0.613,it,2630,1428.0,1205,110,0.554,0.0,0.65,2.0," (33), notiziariosicurezza.it (1), docs.google.com (1)",False,False
+Itanglese,0.534,misto,3453,1427.0,1137,111,0.339,0.01,0.08,6.0, (4),False,False
+ViaggiITA,0.558,misto,2878,1423.0,1082,135,0.468,0.0,0.84,3.0," (9), play.google.com (2), garanteprivacy.it (2)",True,False
+roma,0.536,misto,2983,1367.0,1082,101,0.464,0.03,0.79,4.0," (8), auto.everyeye.it (1)",False,False
+cucina,0.586,misto,2629,1307.0,983,75,0.479,0.0,0.32,8.0,"imgur.com (3),  (2), gioiaeilsuomondo.forumfree.it (2), youtube.com (2), youtu.be (1)",False,False
+torino,0.461,misto,3337,1305.0,1280,188,0.394,0.02,0.79,2.0," (13), chat.whatsapp.com (1), ilpost.it (1), lasicilia.it (1), /r/torino/comments/1u0hzpq/leggera_pioggia_a_torino/ (1)",False,True
+Gatti,0.516,misto,3954,1282.0,1816,200,0.395,0.01,0.15,2.0," (4), youtube.com (2), printsandtease.etsy.com (1), /r/gatti/comments/1tukw0f/i_miei_gatti_vanno_daccordo/ (1)",False,False
+titoliorrendi,0.585,misto,2712,1274.0,1177,38,0.643,0.0,0.03,6.5," (1), rainews.it (1), youtube.com (1)",False,False
+ItaliaStartups,0.645,it,2165,1261.0,579,118,0.491,0.0,0.7,5.0," (17), open.substack.com (2), digitaac.it (1), inorario.toreroclub.com (1)",True,False
+camicibianchi,0.57,misto,2422,1224.0,581,68,0.561,0.0,1.0,9.0,,False,False
+PA_Italia,0.586,misto,2290,1220.0,578,86,0.583,0.0,0.78,4.5,"lentepubblica.it (7),  (4), pamagazine.it (1), ansa.it (1), italiaoggi.it (1)",True,False
+cinemaIT,0.565,misto,2465,1142.0,1034,82,0.38,0.07,0.73,7.5,"youtube.com (1),  (1), sentieriselvaggi.it (1)",False,False
+milano,0.378,misto,3431,1132.0,1409,152,0.25,0.01,0.86,0.5,"connessionipro.it (2), c.org (1), inorario.toreroclub.com (1), youtu.be (1), lifestyle.everyeye.it (1)",False,True
+Relazioni,0.712,it,1719,1098.0,608,91,0.726,0.04,0.89,1.0," (8), t.me (1)",False,False
+EducazioneSessualeITA,0.684,it,1774,1079.0,567,62,0.729,0.05,0.87,2.5," (6), ilfattoquotidiano.it (1)",True,False
+FilosofiaITA,0.723,it,1652,1078.0,312,55,0.566,0.04,0.75,1.0," (7), instagram.com (2), open.spotify.com (1), youtube.com (1)",True,False
+Yunisorrisiecanzoni,0.559,misto,2383,1069.0,1158,51,0.229,0.0,0.02,1.0,"youtube.com (10),  (3), youtu.be (2), srganzo.com (1), adnkronos.com (1)",False,False
+TooBigToFailPodcast,0.613,it,1774,1011.0,280,75,0.444,0.0,0.95,9.0,"youtu.be (1), justetf.com (1)",False,False
+ICGA,0.609,it,1909,984.0,318,86,0.232,0.0,0.2,4.5,"youtube.com (31), store.steampowered.com (15), youtu.be (2), hallucinate.site (1), nvidia.com (1)",False,False
+Calcio,0.523,misto,2109,970.0,831,95,0.411,0.0,0.48,1.0," (10), youtube.com (5), youtu.be (3), triplete.vercel.app (2), vm.tiktok.com (2)",False,False
+liberali,0.625,it,1703,955.0,207,81,0.373,0.0,0.33,6.0,"youtube.com (3),  (3), ansa.it (3), ilfoglio.it (2), miltonfriedman.hoover.org (1)",False,False
+SinistrITA,0.623,it,1663,900.0,138,68,0.541,0.0,0.26,6.5," (6), youtu.be (2), pungolorosso.com (1), youtube.com (1), /r/sinistrita/comments/1u4wjpq/ho_trovato_un_ultra_nazista_di_probabilmente_10/ (1)",True,False
+immobiliare,0.601,it,1596,899.0,532,72,0.5,0.0,0.71,4.0, (16),False,False
+consulentidellavoro,0.607,it,1598,885.0,665,92,0.537,0.0,0.52,1.0," (30), notiziariosicurezza.it (1)",False,False
+veganita,0.683,it,1348,862.0,475,32,0.594,0.0,0.66,10.0," (1), gioiaeilsuomondo.forumfree.it (1)",False,False
+rapitaliano,0.597,misto,1818,855.0,412,58,0.596,0.0,0.43,5.0," (3), youtube.com (3), open.spotify.com (2), youtu.be (1), instagram.com (1)",True,False
+giardinaggioITA,0.533,misto,1795,826.0,647,100,0.591,0.0,0.16,5.0,"urlgeni.us (1), postimg.cc (1), amzn.eu (1)",True,False
+napoli,0.363,misto,2600,804.0,1010,159,0.257,0.01,0.74,2.0," (12), napolijournal.com (9), politicamagazine.it (2), maps.app.goo.gl (2), ilmattino.it (2)",False,True
+PokemonFans_ITA,0.582,misto,1943,793.0,433,98,0.367,0.0,0.11,4.0," (11), youtube.com (2), youtu.be (1)",True,False
+ShitItalianSay,0.617,it,1471,784.0,387,47,0.525,0.0,0.15,7.0,"youtube.com (1),  (1)",True,False
+ciclismourbano,0.571,misto,1456,782.0,441,49,0.386,0.0,0.65,3.0," (5), youtube.com (3), electricbikeblog.com (1), nrso.ntua.gr (1), discovercars.com (1)",False,False
+Gamethology,0.558,misto,1708,778.0,676,63,0.327,0.0,0.17,6.0," (3), youtu.be (2)",False,False
+Superdotati,0.409,misto,4871,765.0,984,599,0.388,1.0,0.16,1.0," (20), redgifs.com (19), yuvideos.com (1)",False,True
+QuandoCeraloStereo,0.372,misto,2587,742.0,869,89,0.217,0.01,0.07,11.0,"youtu.be (1), it.pornhub.com (1)",False,True
+MinecraftItalia,0.558,misto,1930,728.0,579,99,0.548,0.0,0.43,4.0," (6), discord.gg (2)",True,False
+MotoItaly,0.577,misto,1405,723.0,404,54,0.415,0.0,0.76,6.0," (5), motoabbigliamento.it (1)",True,False
+AdolescentITA,0.611,it,1974,708.0,171,97,0.593,0.0,0.36,5.0,"youtube.com (9),  (1), /r/adolescentita/comments/1tv390d/pov_mr_crab_in_irl/ (1), vm.tiktok.com (1)",True,False
+Italian,0.139,altra,6123,699.0,2796,173,0.158,0.02,0.6,2.0," (24), youtube.com (3), weirditaly.com (2), gofundme.com (1), iprofe.com.ar (1)",True,True
+sborratesuvipitaliaa,0.527,misto,6067,693.0,1625,2099,0.368,1.0,0.55,0.0," (214), t.me (4), redgifs.com (1)",True,False
+ArrapatIT,0.522,misto,2652,686.0,611,366,0.364,1.0,0.55,0.0," (39), redgifs.com (7), streamer-nudes.com (1)",False,False
+caparezza,0.547,misto,1698,675.0,485,51,0.543,0.0,0.29,4.0,"youtu.be (1), youtube.com (1)",False,False
+captiondom_ita___,0.546,misto,5417,644.0,1152,303,0.324,1.0,0.66,0.0, (28),False,False
+italiasissy,0.496,misto,3072,599.0,767,350,0.416,1.0,0.32,1.0,"redgifs.com (16),  (14), on.soundcloud.com (1)",True,True
+italyLGBT,0.731,it,833,540.0,245,56,0.704,0.09,0.89,1.0,dpscomics.com (1),True,False
+TrekkingItaly,0.53,misto,1058,524.0,360,62,0.45,0.02,0.77,4.0," (6), namasadventure.com (1), t.me (1)",True,False
+Elettricisti,0.611,it,896,520.0,283,31,0.516,0.03,0.58,7.0, (6),False,False
+SudItalia,0.538,misto,1103,519.0,576,62,0.204,0.0,0.13,0.0," (11), bari.corriere.it (1), fondoambiente.it (1), napolitoday.it (1), /r/suditalia/comments/1tvac4g/ieri_pomeriggio_le_creature_che_popolano_il_mar/ (1)",True,False
+scrittura,0.713,it,793,515.0,211,86,0.688,0.03,0.67,1.0,"wattpad.com (4), tiktok.com (1), youtu.be (1), docs.google.com (1), /r/scrittura/comments/1u1hvs9/i_tuoi_29_anni_i_mie_38_oggi/ (1)",False,False
+Orologi,0.562,misto,1096,508.0,387,57,0.5,0.0,0.39,6.0,"recensioniorologi.it (1), hamiltonwatch.com (1), youtube.com (1), chatgpt.com (1), facebook.com (1)",False,False
+AmicizieConoscenze,0.571,misto,1362,496.0,498,196,0.544,0.02,0.85,0.0, (25),False,False
+bologna,0.491,misto,1106,469.0,443,94,0.278,0.01,0.79,0.0," (6), corrieredibologna.corriere.it (1), zero.eu (1), bolognatoday.it (1), /r/bologna/comments/1tw3yoq/ken_il_guerriero_metallica_stadio_dallara_bologna/ (1)",False,True
+YoutubeITA,0.633,it,919,435.0,364,63,0.576,0.02,0.32,2.0,"youtube.com (7),  (2), m.youtube.com (1), youtu.be (1)",True,False
+subito_it,0.588,misto,802,419.0,340,33,0.484,0.0,0.39,3.0," (6), github.com (1), wise.com (1)",False,False
+paperearmate,0.54,misto,1054,411.0,411,285,0.48,0.0,0.01,0.0,"instagram.com (10), youtube.com (8), vm.tiktok.com (5), youtu.be (2), facebook.com (2)",False,False
+TankChat,0.547,misto,1172,411.0,142,173,0.399,0.0,0.38,2.0," (3), /r/tankchat/comments/1u3wsk6/prova_incriminante/ (1), /r/tankchat/comments/1tyvasj/benvenuto_utente_leggere_anche_descrizione/ (1)",False,False
+Formula1Italia,0.532,misto,880,408.0,344,49,0.306,0.0,0.08,2.0,"formula1.it (7),  (2), thejudge13.com (1), youtu.be (1)",True,False
+Wank_ITA,0.559,misto,3124,408.0,415,1116,0.387,1.0,0.59,1.0, (38),True,False
+cazzoitaliano,0.445,misto,2227,401.0,541,305,0.368,1.0,0.0,1.0," (10), redgifs.com (7), i.redgifs.com (1)",True,True
+dogs_ita,0.691,it,684,392.0,300,31,0.467,0.0,0.48,7.0,,False,False
+RpPerTutti,0.589,misto,3108,389.0,759,956,0.317,1.0,0.45,0.0," (77), t.me (3)",False,False
+askTransgender_Italy,0.649,it,637,378.0,184,41,0.725,0.02,1.0,3.0,,True,False
+Lostmediaitalia,0.562,misto,830,377.0,429,67,0.582,0.04,0.66,3.0," (4), youtu.be (2)",True,False
+AnimeItaly,0.554,misto,890,377.0,384,63,0.603,0.0,0.46,2.0,immascorner.wordpress.com (1),True,False
+TransItalia,0.69,it,584,359.0,184,37,0.735,0.08,0.84,4.0, (2),True,False
+poesiaITA,0.626,it,742,358.0,163,112,0.455,0.04,0.55,0.0,"instagram.com (3),  (1)",True,False
+piedifamosiita,0.504,misto,2171,354.0,732,475,0.305,1.0,0.47,0.0," (31), redgifs.com (1)",False,False
+adhd_italia,0.668,it,563,354.0,121,24,0.636,0.0,0.83,3.0, (3),True,False
+locandadeldragorosso,0.735,it,489,342.0,114,20,0.65,0.0,0.75,7.0,"spreaker.com (2),  (1)",False,False
+Coinquilini_di_merda,0.6,it,651,339.0,363,9,1.0,0.0,0.89,8.0, (1),False,False
+italymusica,0.513,misto,802,333.0,391,109,0.272,0.02,0.44,0.0,"open.spotify.com (13), youtu.be (13),  (9), youtube.com (6), lifestyle.everyeye.it (1)",True,False
+ITAGLIA,0.524,misto,1123,323.0,484,24,0.25,0.0,0.25,5.5,youtube.com (3),True,False
+espatriati,0.604,it,576,320.0,230,13,0.125,0.0,0.92,0.0, (1),False,False
+FireIT,0.643,it,519,301.0,208,14,0.333,0.0,0.79,9.5, (1),False,False
+CinemaSerieTV,0.623,it,551,299.0,329,7,0.333,0.0,0.0,1.0,youtube.com (1),False,False
+GOON_ITA,0.531,misto,1460,296.0,358,199,0.371,1.0,0.53,1.0,"redgifs.com (18),  (16)",True,False
+GameDevelopersItaly,0.58,misto,602,293.0,257,42,0.39,0.0,0.48,1.0," (4), store.steampowered.com (2), youtu.be (2), /r/gamedevelopersitaly/comments/1u6glee/sto_creando_un_gioco_di_parkour_ambientato_in_una/ (1), /r/gamedevelopersitaly/comments/1tzgxa8/ho_aggiunto_una_nuova_feature_al_mio_gioco/ (1)",True,False
+Italianscamads,0.537,misto,709,289.0,453,25,0.6,0.0,0.16,3.0,i.imgur.com (1),True,False
+Genova,0.5,misto,689,268.0,327,47,0.31,0.04,0.81,3.0,"real.it (1), lavocedigenova.it (1),  (1)",False,True
+Italianmature,0.445,misto,1529,265.0,393,408,0.374,1.0,0.03,0.0,"redgifs.com (23),  (7), on.soundcloud.com (1)",True,True
+bollette,0.592,misto,479,263.0,217,23,0.478,0.0,0.74,4.0, (1),False,False
+seghe_bi_gay,0.543,misto,2285,261.0,549,770,0.357,1.0,0.71,0.0," (56), redgifs.com (3), v3.redgifs.com (1)",False,False
+Cattolicesimo,0.717,it,376,251.0,82,47,0.391,0.02,0.53,1.0,"salesalato.com (5),  (4), infovaticana.com (2), communiobiblica.org (2), informazionecattolica.it (1)",False,False
+ANIMEITALIAOTAKU,0.197,altra,1295,251.0,21,708,0.126,0.0,0.12,1.0,"immascorner.wordpress.com (2), /r/animeitaliaotaku/comments/1u3cxab/smoking_behind_the_supermarket_with_you/ (1), chatgpt.com (1), /r/animeitaliaotaku/comments/1u5szwl/tokyo_revengers_war_of_the_three_titans_arc/ (1), /r/animeitaliaotaku/comments/1twq88r/mobius_dust_nuova_key_visual_e_pv_per_lanime/ (1)",True,True
+firenze,0.387,misto,752,247.0,359,34,0.455,0.03,0.76,3.5," (2), open.spotify.com (1)",False,True
+DarioMocciaTwitch,0.596,misto,676,246.0,382,339,0.469,0.0,0.05,0.0," (5), youtube.com (3), /r/dariomocciatwitch/comments/1tuso2k/da_comprare_mi_sa/ (1), /r/dariomocciatwitch/comments/1u21hij/ciao_darione_volevo_chiederti_se_avessi_visto/ (1), /r/dariomocciatwitch/comments/1tyk4jx/sbustamenti_improponibili_e_oserei_dire_desertici/ (1)",False,False
+RealGirlsItaly,0.373,misto,1486,243.0,550,490,0.387,1.0,0.03,0.0,"redgifs.com (16),  (10), on.soundcloud.com (1)",True,True
+MatematicaItaly,0.593,misto,442,236.0,155,25,0.261,0.0,0.6,3.0," (4), sport-e-sport.forumfree.it (1), instagram.com (1)",True,False
+ilPost,0.636,it,404,232.0,212,7,0.429,0.0,0.57,4.0,ilpost.it (1),False,False
+memesITA,0.567,misto,596,229.0,353,28,0.278,0.0,0.0,1.0,"youtube.com (3),  (2)",True,False
+Sardegna,0.51,misto,503,227.0,247,30,0.25,0.03,0.43,1.5," (6), theguardian.com (1), youtube.com (1), corriere.it (1), /r/sardegna/comments/1tyazjn/tributo_a_sofia/ (1)",False,False
+ItalyNSFW,0.381,misto,1342,224.0,571,732,0.394,1.0,0.1,1.0,"redgifs.com (28),  (9), v3.redgifs.com (6), i.redgifs.com (1), on.soundcloud.com (1)",True,True
+ItaliaControversa,0.61,it,401,221.0,167,5,0.8,0.0,1.0,7.0,,True,False
+TradeRepublic_IT,0.616,it,398,218.0,173,37,0.344,0.0,0.51,0.0," (12), github.com (1)",False,False
+Poldo_official_sub,0.474,misto,740,217.0,427,20,0.571,0.0,0.0,5.5,"/r/poldo_official_sub/comments/1tv33nr/ho_catturato_mr_crab_in_irl/ (1), /r/poldo_official_sub/comments/1u0hwhl/le_fiabe_di_raxnox/ (1),  (1)",False,True
+FashionRepsIT,0.484,misto,567,210.0,173,78,0.368,0.01,0.47,1.0, (5),False,True
+FotografiaItalia,0.466,misto,527,208.0,282,61,0.444,0.0,0.25,1.0,youtu.be (2),True,True
+MemeItaliani,0.587,misto,476,193.0,310,44,0.5,0.02,0.0,1.0,"youtube.com (11), i.imgur.com (1)",True,False
+aiuto,0.615,it,361,192.0,212,80,0.667,0.0,0.5,0.0," (26), forms.gle (1), paypal.me (1)",False,False
+Truffaonline,0.578,misto,377,190.0,213,40,0.432,0.0,0.73,0.0," (4), youtube.com (1)",False,False
+italianlearning,0.066,altra,3358,190.0,1363,148,0.099,0.01,0.71,3.0," (15), forms.gle (1), italianpoetry.it (1), iprofe.com.ar (1)",True,True
+Ticino,0.453,misto,462,188.0,221,32,0.5,0.0,0.66,3.5," (2), swissinfo.ch (1)",False,True
+BattagliaPerItalia,0.513,misto,521,183.0,55,34,0.265,0.0,0.47,8.0,,True,False
+amexItaly,0.566,misto,367,180.0,131,25,0.5,0.0,0.76,3.0, (2),True,False
+TinderItaly,0.606,it,368,175.0,160,10,0.2,0.0,0.9,1.0, (2),True,False
+fumetti,0.524,misto,433,175.0,197,58,0.474,0.0,0.24,1.0," (3), instagram.com (3), youtube.com (2), retrofuturista.com (1)",False,False
+captiondom_ita,0.506,misto,1442,170.0,394,696,0.365,1.0,0.64,0.0," (37), t.me (2), v3.redgifs.com (1), redgifs.com (1)",False,False
+ItalyGW,0.441,misto,760,166.0,271,94,0.312,1.0,0.01,1.0," (6), redgifs.com (3)",True,True
+vibecodingitalia,0.594,misto,312,165.0,123,61,0.197,0.0,0.16,0.0," (13), models.sulat.com (1), huggingface.co (1)",True,False
+Veneto,0.521,misto,354,159.0,188,26,0.32,0.0,0.58,1.0,"youtu.be (4),  (2), wptravelblog.it (1), heraldo.it (1)",False,False
+Stremio_Italia,0.536,misto,341,157.0,141,25,0.364,0.0,0.8,4.0, (1),True,False
+Orrori_Immobiliari,0.498,misto,366,157.0,253,15,0.5,0.0,0.27,1.0, (4),False,True
+Psicologia_Italia,0.763,it,213,145.0,102,91,0.447,0.02,0.52,0.0," (41), forms.gle (1), instagram.com (1), substack.com (1), doi.org (1)",True,False
+ItalianGW,0.458,misto,722,142.0,263,250,0.249,1.0,0.0,1.0,"redgifs.com (33),  (9), v3.redgifs.com (1)",True,True
+Cagliari,0.509,misto,312,140.0,109,15,0.4,0.0,0.73,1.0, (2),False,False
+extg,0.67,it,229,140.0,47,21,0.524,0.0,0.67,3.0," (6), youtube.com (1)",False,False
+chitarristi,0.623,it,265,139.0,110,11,0.273,0.0,0.55,4.0,"youtube.com (3), graficainmovimento.forumfree.it (1), chitarra-classica.forumfree.it (1)",False,False
+brescia,0.432,misto,386,136.0,207,23,0.273,0.0,0.83,2.0, (2),False,True
+rimesegate,0.504,misto,391,136.0,164,48,0.286,0.02,0.04,3.0,"youtube.com (5), /r/rimesegate/comments/1u2v2jj/2_minuti_e_58_secondi_di_silenzio/ (1),  (1)",False,False
+Ratorix,0.549,misto,447,135.0,244,24,0.545,0.13,0.0,5.0, (1),False,False
+bandiere,0.559,misto,320,132.0,156,24,0.458,0.0,0.08,6.0,,False,False
+foundAsproMavro,0.399,misto,611,128.0,105,13,0.556,0.0,0.23,12.0,,False,True
+IPolterGuys,0.512,misto,438,127.0,234,483,0.264,0.01,0.03,0.0," (14), youtu.be (7), vm.tiktok.com (4), gonfaloniere.itch.io (2), youtube.com (2)",False,False
+ItalianFood,0.054,altra,2774,121.0,1111,138,0.038,0.01,0.2,3.0,"youtube.com (5),  (4), youtu.be (2), sugarlovespices.com (1), bellonimport.fr (1)",True,True
+impresa,0.641,it,200,118.0,99,23,0.524,0.0,0.74,1.0," (2), adnkronos.com (1)",False,False
+CodiciAmicoITA,0.511,misto,400,117.0,171,592,0.166,0.0,0.78,0.0," (41), americanexpress.com (2), topcashback.it (1), freecash.com (1), t.me (1)",True,False
+RawItalianStartup,0.752,it,160,115.0,62,2,0.5,0.0,1.0,11.0,,True,False
+femboy_ita,0.548,misto,592,114.0,256,142,0.284,1.0,0.23,0.0,"redgifs.com (27),  (21)",False,False
+BBC_ITALIA,0.447,misto,595,113.0,230,84,0.469,1.0,0.0,0.5,"redgifs.com (8),  (2)",True,True
+piedi_fetish,0.491,misto,829,112.0,269,200,0.374,0.09,0.62,0.0," (1), x.com (1), /r/piedi_fetish/comments/1tv5r10/tik_tok_live/ (1)",False,True
+solopiediita,0.502,misto,622,112.0,288,89,0.286,0.01,0.17,1.0," (5), /r/solopiediita/comments/1u6kapm/iris_mulas/ (1)",False,False
+politicaITA,0.605,it,201,112.0,54,58,0.404,0.0,0.05,0.0,"kulturjam.it (3), ilmanifestoinrete.it (2), transform-italia.it (2), umanitanova.org (2), dinamopress.it (2)",True,False
+Genitori_Ita,0.683,it,177,110.0,112,7,0.429,0.0,0.86,4.0,psicologiapd.fra1.qualtrics.com (1),False,False
+popcornerd,0.5,misto,294,108.0,197,13,0.5,0.08,0.15,1.0,,False,True
+TopInfluencerSexys,0.507,misto,571,108.0,286,171,0.339,1.0,0.11,0.0," (17), redgifs.com (12), streamer-nudes.com (3), t.me (3)",False,False
+amicidiscrittura,0.603,it,226,105.0,163,8,0.571,0.0,0.63,1.5, (1),False,False
+ItalyAmateurs,0.441,misto,771,104.0,222,140,0.402,1.0,0.04,0.0,"redgifs.com (20),  (3), yuvideos.com (3), tayleaks.com (1), anonmp4.help (1)",True,True
+DilettaLeotta,0.42,misto,529,102.0,221,41,0.5,1.0,0.1,1.0, (7),False,True
+infermieri,0.558,misto,208,101.0,92,27,0.37,0.0,0.81,2.0," (4), infermieriattivi.it (1)",False,False
+LaStalla,0.485,misto,427,100.0,201,183,0.484,0.01,0.04,1.0," (4), /r/lastalla/comments/1txh9ka/il_lungo_in_live/ (1), /r/lastalla/comments/1twxuuz/polvere_sdrogosa_francesco_marzhiva/ (1), /r/lastalla/comments/1u0loat/aura/ (1), /r/lastalla/comments/1tyruir/le_conversazioni_del_k_pt1/ (1)",False,True
+40kITA,0.584,misto,196,97.0,79,15,0.467,0.07,0.33,3.0, (1),True,False
+Trenitalia,0.364,misto,281,95.0,122,16,0.313,0.0,0.75,5.5,inorario.toreroclub.com (1),True,True
+italygonewild,0.324,misto,811,94.0,332,394,0.358,1.0,0.06,0.0,"redgifs.com (13),  (4), fanvue.com (1)",True,True
+UrbexItalia,0.46,misto,261,92.0,157,24,0.458,0.0,0.5,1.0," (1), youtube.com (1)",True,True
+TheLoneGamer,0.604,it,214,90.0,113,20,0.6,0.0,0.1,2.5,open.spotify.com (1),False,False
+Bergamo,0.378,misto,262,87.0,132,21,0.238,0.0,0.86,2.0,"lifestyle.everyeye.it (1),  (1)",False,True
+amatorialeITAl,0.472,misto,457,85.0,146,60,0.4,1.0,0.05,0.0, (2),False,True
+italianinfluencers,0.47,misto,430,78.0,159,239,0.175,1.0,0.1,0.0,"redgifs.com (24),  (9), t.me (5), instagram.com (1), photos.app.goo.gl (1)",True,True
+storia,0.481,misto,191,77.0,138,29,0.31,0.03,0.17,1.0," (5), youtu.be (5), youtube.com (4), doi.org (1)",False,True
+AmazonVine_ITA,0.71,it,118,76.0,39,8,0.75,0.0,0.63,8.5,,True,False
+marche,0.514,misto,168,72.0,71,10,0.4,0.0,0.5,0.0,"viverefano.it (1),  (1), cronachemaceratesi.it (1)",False,False
+femboy_italia,0.526,misto,288,72.0,116,48,0.269,0.42,0.25,2.0, (4),True,False
+papere,0.313,misto,473,70.0,281,13,0.583,0.0,0.23,4.0,,False,True
+OcIta,0.526,misto,282,70.0,89,22,0.313,0.0,0.09,4.0," (1), /r/ocita/comments/1twhur4/per_chi_vuole_capire_capisca/ (1), facebook.com (1)",False,False
+JoJoITA,0.552,misto,183,69.0,92,23,0.545,0.0,0.09,4.0, (2),True,False
+TeenagersITA_spotted,0.651,it,170,69.0,65,10,0.3,0.0,0.2,0.5,youtube.com (1),False,False
+ChopSubmissions,0.519,misto,193,68.0,122,26,0.2,0.0,0.0,1.0,"/r/chopsubmissions/comments/1u6elfk/la_4v4_esiste_davvero/ (1),  (1)",False,False
+specialtyCoffeeItaly,0.479,misto,157,67.0,74,10,0.5,0.0,0.5,1.5, (1),True,True
+bicicletta,0.486,misto,152,67.0,59,6,0.8,0.0,0.67,10.0,,False,True
+xyitaly,0.736,it,97,67.0,65,3,1.0,0.0,0.67,3.0,youtu.be (1),True,False
+BancaDelMeme,0.493,misto,187,66.0,105,8,0.2,0.0,0.0,3.5,"i.imgur.com (2), youtube.com (1)",False,True
+cornuti_italiani,0.428,misto,393,65.0,143,35,0.214,1.0,0.34,0.0," (3), redgifs.com (1)",True,True
+HoyaSwapMilano,0.442,misto,168,65.0,17,6,0.6,0.0,0.0,8.5,,False,True
+audioware,0.928,it,69,64.0,1,286,0.063,0.0,1.0,0.0,,False,False
+ItaliaInformatica,0.7,it,101,63.0,52,6,0.6,0.0,1.0,0.5,,True,False
+GDR,0.653,it,116,62.0,51,14,0.385,0.0,0.71,4.0, (2),False,False
+LGBTeensITA,0.625,it,141,60.0,44,7,0.5,0.0,0.43,7.0,,True,False
+ItalyExpat,0.027,altra,2413,59.0,901,100,0.021,0.0,0.88,2.0,"youtube.com (4), youtu.be (2), open.spotify.com (1)",True,True
+Elisa_Bernardoni__,0.58,misto,293,58.0,148,52,0.345,0.12,0.46,0.0,"t.me (6),  (5)",False,False
+lazanzara,0.647,it,97,55.0,55,6,0.667,0.0,0.67,1.0,,False,False
+ScreenWorld,0.671,it,105,55.0,72,3,,0.0,0.0,0.0,,False,False
+AmicizieItaliane,0.593,misto,170,54.0,77,36,0.438,0.0,0.83,0.0," (5), facebook.com (1)",True,False
+erba,0.445,misto,167,53.0,73,18,0.353,0.06,0.78,1.0,,False,True
+IAetFilosofia,0.671,it,83,51.0,2,2,0.5,0.0,1.0,0.0,,False,False
+Profumo,0.485,misto,200,50.0,107,26,0.176,0.0,0.08,1.0," (6), /r/profumo/comments/1u6dndq/cespugliazzoinc_found_footeg/ (1), /r/profumo/comments/1u5pqhr/gmod_prima_e_dopo_la_droga_leggera_attenzione/ (1), /r/profumo/comments/1u53az3/attenzione_all_audio_4k_hd/ (1), /r/profumo/comments/1u4wanv/la_live_del_sabato/ (1)",False,True
+StarlinkItalia,0.617,it,90,50.0,31,4,0.75,0.0,1.0,5.5,,True,False
+fantacalcio_IT,0.527,misto,120,48.0,56,46,0.5,0.0,0.41,0.0," (4), triplete.vercel.app (1)",False,False
+iNoobChannel,0.523,misto,117,46.0,81,16,0.583,0.0,0.0,1.0,"youtube.com (2), /r/inoobchannel/comments/1u4r7s2/va_beh_provo_a_postare_lintera_ytp_se_poi_viene/ (1)",False,False
+soothfy,0.426,misto,108,46.0,103,4,0.0,0.0,1.0,4.0,,False,True
+baemati,0.608,it,379,45.0,210,35,0.273,1.0,0.89,1.0,,False,False
+incontrilombardiaa,0.464,misto,345,45.0,142,157,0.331,1.0,0.97,0.0, (4),False,True
+askitaly,0.037,altra,1293,44.0,602,113,0.009,0.0,1.0,1.0,,True,True
+king_of_the_south,0.597,misto,83,43.0,54,16,0.214,0.0,0.25,0.0,"youtube.com (6), youtu.be (3), /r/king_of_the_south/comments/1tx787t/rarissimo_filmato_inedito_dei_primi_iscritti_a/ (1)",False,False
+catswithlipstick,0.462,misto,95,42.0,91,3,1.0,0.0,1.0,4.0,,False,True
+ReferralITA,0.418,misto,197,41.0,93,258,0.099,0.0,0.53,0.0," (50), wise.com (1), americanexpress.com (1), topcashback.it (1)",True,True
+giochidatavolo,0.639,it,64,39.0,40,26,0.423,0.0,0.58,0.0," (6), rotteecannoni.it (1)",False,False
+Elioelestorietese,0.567,misto,100,38.0,27,4,0.333,0.0,0.5,4.0,,False,False
+NickIsPurple,0.535,misto,145,38.0,14,0,,,,,,False,False
+HotItalianWomen2,0.5,misto,177,36.0,88,58,0.538,0.1,0.07,0.0,"t.me (2), youtube.com (1), /r/hotitalianwomen2/comments/1tyzik6/twerk/ (1),  (1)",True,True
+Ita_influecer,0.468,misto,318,36.0,168,236,0.2,0.09,0.43,0.0," (17), t.me (3), /r/ita_influecer/comments/1u0nskh/immagina_che_mentre_parla_tu_ti_stai_segando/ (1), botynude.com (1), fapify.com (1)",False,True
+SegheSuTransITA,0.486,misto,101,36.0,20,13,0.462,1.0,0.0,2.0,redgifs.com (13),True,True
+parma,0.385,misto,110,35.0,57,12,0.667,0.0,1.0,4.5,,False,True
+Giulia_Sara_Salemi2,0.427,misto,167,35.0,75,70,0.167,0.03,0.06,0.0,"t.me (3),  (2)",False,True
+EdenItalyClub2,0.618,it,113,34.0,51,41,0.189,0.05,0.29,1.0, (1),True,False
+Totta_foto_hot,0.42,misto,184,34.0,70,45,0.158,1.0,0.22,0.0," (2), t.me (1), tayleaks.com (1)",False,True
+BarbascuraX,0.516,misto,126,33.0,98,3,0.0,0.0,0.33,18.0,,False,False
+ristrutturare,0.604,it,63,32.0,40,14,0.583,0.0,0.64,0.0, (2),False,False
+abdl_Ita,0.525,misto,112,32.0,50,22,0.632,0.05,0.73,0.5,,False,False
+nudisti_Italia,0.425,misto,154,31.0,72,39,0.1,1.0,0.05,0.0," (3), redgifs.com (1)",True,True
+trentino_alto_adige,0.525,misto,66,31.0,40,5,0.2,0.0,0.6,1.0,youtube.com (1),False,False
+UCSampdoria,0.304,misto,116,31.0,32,7,0.286,0.0,0.0,3.0,,False,True
+Scapezzolate_Italiane,0.66,it,177,31.0,128,24,0.308,0.42,0.21,0.0,"/r/scapezzolate_italiane/comments/1tygurj/giulia_ottorini_la_esce/ (1),  (1)",True,False
+OnePiece_it,0.612,it,61,30.0,47,5,0.2,0.0,0.0,3.0,youtube.com (1),False,False
+italiaLGBTsex,0.385,misto,229,30.0,126,59,0.333,1.0,0.15,0.0," (4), redgifs.com (2), on.soundcloud.com (1)",True,True
+DirezioneNR,0.714,it,44,30.0,13,5,0.2,0.0,0.8,2.0,,False,False
+italianfeeet,0.483,misto,180,29.0,115,67,0.5,0.0,0.51,0.0, (2),True,True
+Italian_BNWO,0.596,misto,100,28.0,59,39,0.441,1.0,0.13,0.0,"redgifs.com (4),  (3)",True,False
+sborratesuvipitaliane,0.481,misto,213,26.0,116,89,0.353,0.08,0.63,0.0," (9), t.me (2)",True,True
+ItalyaTR,0.012,altra,2094,22.0,337,147,0.0,0.0,0.97,4.0,,True,True
+FeetItalianGirl,0.415,misto,106,22.0,61,77,0.25,1.0,0.13,0.0, (11),True,True
+ItalyTravelAdvice,0.011,altra,2278,22.0,919,161,0.007,0.0,0.71,1.0, (39),True,True
+FascistItalyPhotos,0.088,altra,299,22.0,130,35,0.057,0.03,0.06,0.0,,True,True
+ItalyFem,0.362,misto,113,17.0,45,8,0.5,1.0,0.0,5.0,,True,True
+ItalyTravel,0.003,altra,5752,15.0,1865,727,0.003,0.0,1.0,1.0,,True,True
+cidadaniaitaliana,0.019,altra,817,13.0,278,28,0.0,0.0,0.82,6.0," (3), msn.com (1)",True,True
+StudyInItaly,0.002,altra,8683,12.0,2008,781,0.003,0.0,0.94,1.0,chat.whatsapp.com (3),True,True
+learnitalian,0.051,altra,250,11.0,138,29,0.111,0.0,0.69,1.0, (6),True,True
+ItalianGenealogy,0.04,altra,106,4.0,40,7,0.143,0.0,0.71,3.0,antenati.cultura.gov.it (1),True,True
+italiancooking,0.008,altra,343,2.0,222,45,0.073,0.0,0.24,0.0,"youtube.com (10),  (2), youtu.be (2), ebay.us (1), sugarlovespices.com (1)",True,True
+ItalyTourism,0.016,altra,140,2.0,95,106,0.041,0.0,0.49,0.0," (23), youtube.com (8), i.imgur.com (1), venicetips.com (1), youtu.be (1)",True,True
+ItalianBrainrot,0.015,altra,228,2.0,135,43,0.0,0.02,0.14,0.0,"youtu.be (4),  (2), youtube.com (2)",True,True
+MAECIItaly,0.007,altra,405,2.0,153,25,0.0,0.0,0.8,0.0, (4),True,True
+italianamerican,0.009,altra,248,2.0,131,15,0.0,0.07,0.47,0.0,"youtu.be (2), gofundme.com (1), michael-parenti.org (1),  (1)",True,True
+italianarmedforces,0.01,altra,123,1.0,40,14,0.0,0.0,0.14,0.0,,True,True
+MelbourneAITA,0.001,altra,2760,1.0,780,312,0.0,1.0,0.09,2.0," (7), redgifs.com (4)",True,True
+ItaliaBox,0.0,altra,129,0.0,103,1327,0.0,0.0,0.0,0.0,"bbc.com (83), amazon.com (77), theguardian.com (55), amazon.fr (45), aljazeera.com (42)",True,True
+WIBTA_AITA,0.0,altra,4387,0.0,2814,83,0.0,0.0,0.83,11.0, (14),True,True
+PandabuyItalia,0.0,altra,148,0.0,20,82,0.013,0.0,0.02,2.0,,True,True
+MiniAITA,0.0,altra,776,0.0,350,62,0.017,0.0,0.81,4.0, (9),True,True
+DnDAITA,0.0,altra,646,0.0,305,7,0.0,0.0,0.29,1.0, (5),True,True
+GuroAITA,0.0,altra,106,0.0,21,12,0.0,1.0,0.42,2.0,,True,True
+ItalianGreyhounds,0.0,altra,2804,0.0,864,115,0.0,0.0,0.19,6.0,"i.imgur.com (5), /r/italiangreyhounds/comments/1u36yta/mushu_completing_puzzle_level_4/ (1), /r/italiangreyhounds/comments/1tvmkwh/mushu_and_his_breakfast_puzzle/ (1), /r/italiangreyhounds/comments/1u4sje4/mushu_morning_breakfast_enrichment_fun/ (1), /r/italiangreyhounds/comments/1u1exsi/iggy_barking_at_someone_outside_for_the_first_time/ (1)",True,True
+AmericansinItaly,0.0,altra,117,0.0,55,10,0.0,0.0,1.0,2.0,,True,True

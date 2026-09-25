@@ -1,0 +1,5 @@
+reddit
+.venv/
+__pycache__/
+01_analisi/output/
+CONTESTO_PROGETTO.md
