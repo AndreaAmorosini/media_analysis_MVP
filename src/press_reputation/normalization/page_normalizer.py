@@ -2,8 +2,9 @@ import logging
 from typing import Any
 
 from press_reputation.models.page import (PageRecord, Region, RegionType)
-from press_reputation.classification import PageClassifier, RegionClassifier
-from press_reputation.metadata import MetadataExtractor
+from press_reputation.classification.boilerplate_detector import DocumentBoilerplateDetector
+from press_reputation.classification.header_metadata_zone import HeaderMetadataZoneDetector
+from press_reputation.reconstruction import BodyContinuationResolver
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +45,7 @@ class PageNormalizer:
             pages=pages,
         )
         
-        region_classifier = RegionClassifier()
-        metadata_extractor = MetadataExtractor()
-        page_classifier = PageClassifier()
-        
-        normalized_pages = []
-        
-        for page_no in sorted(pages):
-            page = pages[page_no]
-            
-            region_classifier.enrich(page)
-            metadata_extractor.enrich(page)
-            page.page_type = page_classifier.classify(page)
-            
-            normalized_pages.append(page)
-            
-        return normalized_pages
+        return [pages[page_no] for page_no in sorted(pages)]
 
     
     def _to_dict(self, document: Any) -> dict[str, Any]:
@@ -144,7 +130,7 @@ class PageNormalizer:
             return RegionType.CAPTION
 
         if label == "section_header":
-            return RegionType.ARTICLE_TITLE
+            return RegionType.UNKNOWN
 
         if label == "page_header":
             return RegionType.HEADER_METADATA

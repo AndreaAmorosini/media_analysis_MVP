@@ -23,6 +23,8 @@ class RegionFeatures(BaseModel):
     
     has_author_marker: bool = False
     has_ad_marker: bool = False
+    has_rights_notice_marker: bool = False
+    has_watermark_marker: bool = False
     
     has_newsletter: bool = False
     has_share_marker: bool = False
@@ -95,12 +97,16 @@ class RegionFeatureExtractor:
             ),
             has_ad_marker=(
                 "pubblicità" in lower
+                or "pubblicita" in lower
                 or "advertisement" in lower
                 or "sponsored" in lower
                 or "sponsorizzato" in lower
                 or "annuncio" in lower
-                or "publicita" in lower
-                or lower.strip() in {"adv", "ads"}
+                or "banner" in lower
+                or "google ads" in lower
+                or "adsbygoogle" in lower
+                or "promoted" in lower
+                or lower.strip() in {"adv", "ads", "ad"}
             ),
             has_foglio="foglio" in lower,
             has_surface="superficie" in lower,
@@ -121,6 +127,22 @@ class RegionFeatureExtractor:
                 or "home" == lower.strip()
                 or "chi siamo" in lower
                 or "contatti" in lower
+            ),
+            has_rights_notice_marker=(
+                "©" in text
+                or "copyright" in lower
+                or "riproduzione riservata" in lower
+                or "riproduzione vietata" in lower
+                or "tutti i diritti riservati" in lower
+                or "all rights reserved" in lower
+                or "articolo non cedibile" in lower
+                or "uso esclusivo" in lower
+            ),
+            has_watermakr_marker=(
+                "data stampa" in lower
+                or "articolo non cedibile" in lower
+                or "uso esclusivo" in lower
+                or "cliente che lo riceve" in lower
             ),
             has_cookie_marker="cookie" in lower or "privacy policy" in lower,
             is_known_newspaper=newspaper is not None,

@@ -28,7 +28,7 @@ class MetadataExtractor:
         text = self.metadata_text(page)
 
         if not text:
-            text = self.page_text(page)
+            text = self.header_zone_text(page)
 
         publication_date = self.extract_date(text)
         original_page = self.extract_original_page(text)
@@ -84,6 +84,8 @@ class MetadataExtractor:
             RegionType.PUBLICATION_DATE,
             RegionType.ORIGINAL_PAGE,
             RegionType.CLIPPING_SHEET,
+            RegionType.RIGHTS_NOTICE,
+            RegionType.WATERMARK
         }
 
         return "\n".join(
@@ -209,3 +211,10 @@ class MetadataExtractor:
             return None
         
         return host
+    
+    @staticmethod
+    def header_zone_text(page: PageRecord) -> str:
+        return "\n".join(
+            region.text.strip()
+            for region in page.regions if region.metdata.get("in_header_metadata_zone") and region.text and region.text.strip()
+        )

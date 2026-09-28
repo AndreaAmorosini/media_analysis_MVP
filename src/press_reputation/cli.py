@@ -8,6 +8,8 @@ from rich.console import Console
 from press_reputation.normalization import PageNormalizer
 from press_reputation.parsers import DoclingParser
 from press_reputation.image_analysis import enrich_article_position_thumbnails
+from press_reputation.style import PdfStyleEnricher
+from press_reputation.pipeline import PageProcessingPipeline
 
 app = typer.Typer()
 console = Console()
@@ -60,6 +62,11 @@ def parse(
     
     normalizer = PageNormalizer()
     pages = normalizer.normalize(document, document_id=pdf_path.name)
+    
+    pipeline = PageProcessingPipeline()
+    pages = pipeline.process(pages=pages, pdf_path=pdf_path)
+    
+    PdfStyleEnricher().enrich_document(pdf_path=pdf_path, pages=pages)
     
     for page in pages:
         enrich_article_position_thumbnails(pdf_path=pdf_path, page=page)

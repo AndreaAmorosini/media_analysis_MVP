@@ -26,6 +26,9 @@ class RegionType(str, Enum):
     ORIGINAL_PAGE = "original_page"
     CLIPPING_SHEET = "clipping_sheet"
     LOCATION = "location"
+    ARTICLE_SECTION_HEADER = "article_section_header"
+    WATERMARK = "watermark"
+    RIGHTS_NOTICE = "rights_notice"
     
     ARTICLE_TITLE = "article_title"
     ARTICLE_SUBTITLE = "article_subtitle"
@@ -64,6 +67,11 @@ class Region(BaseModel):
     raw_label: Optional[str] = None
     provenance: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    style: dict[str, Any] = Field(default_factory=dict)
+    boilerplate: bool = False
+    boilerplate_frequency: Optional[float] = None
+    exclude_from_article_text: bool = False
+    article_id: Optional[str] = None
 
 
 class PageRecord(BaseModel):
