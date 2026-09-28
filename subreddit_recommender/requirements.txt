@@ -1,3 +1,7 @@
 duckdb==1.5.5
 pandas==3.0.6
 pyarrow==25.0.1
+lingua-language-detector==2.2.0
+sentence-transformers==6.1.0
+torch==2.14.0
+transformers==5.17.0
