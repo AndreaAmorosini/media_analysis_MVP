@@ -15,9 +15,9 @@ Notizia ──► embedding ──► confronto con i testi dei subreddit ──
 - [Fasi del progetto](#fasi-del-progetto)
   - [Fase 1 – Scoperta dei subreddit italiani](#fase-1--scoperta-dei-subreddit-italiani) ✅
   - [Fase 2 – Pulizia dei commenti](#fase-2--pulizia-dei-commenti) ✅
-  - [Fase 3 – Pulizia dei post](#fase-3--pulizia-dei-post) ⏳
-  - [Fase 4 – Embedding e selezione dei top 20](#fase-4--embedding-e-selezione-dei-top-20) ⏳
-  - [Fase 5 – Valutazione](#fase-5--valutazione) ⏳
+  - [Fase 3 – Pulizia dei post](#fase-3--pulizia-dei-post) ✅
+  - [Fase 4 – Embedding e selezione dei top 20](#fase-4--embedding-e-selezione-dei-top-20) ✅ (confronto modelli)
+  - [Fase 5 – Valutazione](#fase-5--valutazione) ✅ (prima versione)
   - [Fase 6 – Re-ranking con Jev](#fase-6--re-ranking-con-jev) ⏳
   - [Fase 7 – Recupero periodico tramite API Reddit](#fase-7--recupero-periodico-tramite-api-reddit) ⏳
 - [Decisioni prese](#decisioni-prese)
@@ -30,14 +30,25 @@ subreddit_recommender/
 ├── README.md                  questo file
 ├── requirements.txt           dipendenze Python
 ├── data/
-│   └── subreddit_italiani.csv tabella dei subreddit italiani (Fase 1)
+│   ├── subreddit_italiani.csv tabella dei subreddit italiani (Fase 1)
+│   ├── subreddit_esclusi.csv  subreddit tolti a mano (adulti, referral, spam…)
+│   └── subreddit_puliti.csv   catalogo dei subreddit rimasti dopo la pulizia dei post (Fase 3)
 ├── src/                       codice riutilizzabile, indipendente dalla sorgente dei dati
 │   ├── sorgenti.py            lettura dei dati (oggi: dump; in futuro: API Reddit)
-│   └── pulizia.py             regole di pulizia dei commenti
+│   ├── pulizia.py             regole di pulizia di commenti e post
+│   ├── embedding.py           modelli di embedding e codifica dei testi (Fase 4)
+│   ├── candidati.py           punteggio dei subreddit per una notizia, top N (Fase 4)
+│   └── valutazione.py         dataset di valutazione e metriche (Fase 5)
 ├── 01_analisi/                script di analisi sul dump
 │   ├── analisi_commenti.py    applica la pulizia e conta gli scarti per regola
 │   ├── esempi_commenti.py     esempi reali per ogni regola
+│   ├── analisi_post.py        lo stesso per i post (Fase 3)
+│   ├── esempi_post.py
 │   └── output/                risultati (Parquet, non versionati)
+├── 02_embedding/
+│   ├── confronta_modelli.py   embedding dei post con più modelli e confronto sulla valutazione
+│   ├── suggerisci.py          top 20 subreddit per una notizia (titolo + descrizione)
+│   └── output/                embedding in cache e risultati.csv (non versionati)
 └── reddit/                    dump Reddit (facoltativo, non versionato: vedi sotto)
 ```
 
@@ -68,6 +79,8 @@ Gli script si lanciano da questa cartella (`subreddit_recommender/`):
 ```bash
 .venv/bin/python 01_analisi/analisi_commenti.py
 .venv/bin/python 01_analisi/esempi_commenti.py
+.venv/bin/python 01_analisi/analisi_post.py
+.venv/bin/python 01_analisi/esempi_post.py
 ```
 
 ## Dati
@@ -170,48 +183,157 @@ dirette ai post con score positivo.
 
 ### Fase 3 – Pulizia dei post
 
-⏳ **Da fare.** Circa 34.000 post utilizzabili nei subreddit italiani (metà del mese), di cui
-~14.000 link (i più vicini al nostro caso: notizie condivise).
+✅ **Fatta** (regole in `src/pulizia.py`, analisi in `01_analisi/`).
 
-Regole previste:
-- togliere post NSFW, fissati in alto, di AutoModerator e bot, con titolo `[deleted]`/`[removed]`;
-- tenere il titolo quando il testo è `[removed]`;
-- togliere i post quasi vuoti e i duplicati o crosspost della stessa notizia;
-- tenere `score`, `num_comments` e `domain` come informazioni in più.
+**Subreddit considerati:** gli stessi della Fase 2, meno i **18** di `data/subreddit_esclusi.csv`
+(per adulti con poca quota NSFW, referral, spam di casinò, offerte automatiche, annunci di
+amicizia) → **181 subreddit, 21.744 post** (metà del mese). Da soli, gli esclusi valevano
+14.000 post.
 
-Da riusare: `src/pulizia.py` (normalizzazione, regole sui bot) con una funzione per i post.
+`pulisci_post(df)` non elimina righe. Aggiunge:
+
+| Colonna | Significato |
+|---|---|
+| `titolo_pulito`, `corpo_pulito` | normalizzati come i commenti; il corpo è vuoto se `[removed]`/`[deleted]` |
+| `testo_pulito` | titolo + corpo: è il testo da usare per gli embedding |
+| `n_parole` | parole di `testo_pulito` |
+| `tipo` | `testo`, `link`, `immagine`, `video`, `galleria`, `crosspost`, `altro` |
+| `dominio` | dominio del link esterno (senza `www.`), vuoto per i contenuti ospitati su Reddit. Si ricava dall'`url`: il campo `domain` del dump per alcuni video `v.redd.it` contiene il permalink del post |
+| `conf_italiano` | probabilità (0–1) che il testo sia italiano, dal rilevatore [`lingua`](https://github.com/pemistahl/lingua-py) |
+| `motivo_scarto` | primo motivo che si applica, `None` se il post si tiene |
+
+**Regole, in ordine di applicazione, con i risultati sul dump:**
+
+| # | Motivo | Regola | Post | Quota |
+|---|---|---|---|---|
+| – | **tenuto** | | **16.130** | **74,2%** |
+| 1 | `rimosso` | titolo o testo `[ Removed by Reddit/moderator ]` | 104 | 0,5% |
+| 2 | `rimosso_mod` | testo `[removed]`: tolto dai moderatori | 2.187 | 10,1% |
+| 3 | `nsfw` | `over_18` | 234 | 1,1% |
+| 4 | `bot_nome` | come nei commenti (AutoModerator, nome che finisce in `bot`) | 74 | 0,3% |
+| 5 | `bot_frase` | come nei commenti | 2 | – |
+| 6 | `moderazione` | `distinguished = moderator` o fissato in alto | 33 | 0,2% |
+| 7 | `corto` | titolo + testo sotto le **4 parole** ("Opinioni?", "Per non dimenticare") | 1.263 | 5,8% |
+| 8 | `non_italiano` | `conf_italiano < 0,2` | 859 | 4,0% |
+| 9 | `ripetuto` | stesso autore, stesso post almeno 5 volte (autopromozione in molti sub) | 79 | 0,4% |
+| 10 | `duplicato` | stesso post ripubblicato nello stesso sub: si tiene il primo | 169 | 0,8% |
+| 11 | `sub_piccolo` | subreddit con meno di **20 post** rimasti dopo le regole precedenti | 610 | 2,8% |
+
+Le soglie sono nella classe `RegolePost` di `src/pulizia.py`.
+
+**Scelte.**
+- **I post `[removed]` si scartano** (`tieni_rimossi_dai_mod = False`): se i moderatori li hanno
+  tolti, il sub li ha giudicati non adatti, quindi non lo descrivono e non vanno nella valutazione.
+  Il costo è alto su r/italy, che toglie molti post e li rimanda al thread giornaliero
+  (440 rimossi, 252 tenuti).
+- I post di autori `[deleted]` si tengono: il titolo resta valido.
+- `ripetuto` conta per autore: la stessa notizia pubblicata da utenti diversi in sub diversi
+  si tiene (esempio: un articolo di ilpost.it su oknotizie, TuttoItalia, Italia e italy).
+  Nello stesso sub resta una sola copia (`duplicato`).
+- **Lingua**: si usa `lingua` (confronto fra italiano, inglese, spagnolo, portoghese, francese,
+  tedesco, rumeno; ~2 s su tutti i post) invece delle parole funzionali della Fase 1, che sui
+  titoli brevi sbagliavano spesso. La soglia 0,2 tiene i titoli misti ("Che ne pensate di Steam
+  Machine?", "Ebola in Congo 2026: l'epidemia…"); sotto è quasi tutto inglese (turisti e
+  studenti stranieri su r/italy, r/napoli, r/milano, r/Universitaly). Vicino alla soglia gli
+  errori ci sono in entrambe le direzioni, ma sono pochi.
+- **Subreddit piccoli**: la soglia si applica ai post rimasti dopo tutte le altre regole.
+  Sul dump attuale (metà del mese) 20 post corrispondono a circa 40 al mese. Escono 62 sub
+  (Veneto, brescia, Bergamo, memesITA, adhd_italia, …). Con il dump completo la soglia
+  andrà ricontrollata.
+- Il testo automatico "This post contains content not supported on old Reddit…" si toglie
+  nella normalizzazione.
+
+**Risultato.** 16.130 post in **118 subreddit** (mediana 58 post per sub, 71 sub con almeno 50):
+9.904 testuali, poi immagini, link, gallerie, video e crosspost. I link esterni sono 1.323, di cui
+765 verso domini `.it` (ansa.it 81, ilpost.it 46, rainews.it 40, ilfattoquotidiano.it 36…):
+sono la base della Fase 5.
+
+**Catalogo.** `analisi_post.py` salva anche `data/subreddit_puliti.csv`, una riga per ognuno dei
+118 subreddit: è l'elenco da usare nella Fase 4.
+
+| Colonna | Significato |
+|---|---|
+| `subreddit` | nome |
+| `n_post`, `n_autori` | post tenuti e autori distinti |
+| `quota_testuali`, `quota_link`, `quota_media` | quota di post testuali, con link esterno, immagini/gallerie/video |
+| `mediana_commenti`, `mediana_score` | coinvolgimento tipico |
+| `top_domini` | 5 domini esterni più linkati |
+
+**Osservazioni.** Per immagini, gallerie e video il testo è solo il titolo: descrivono il sub
+meno dei post testuali e dei link.
 
 ### Fase 4 – Embedding e selezione dei top 20
 
-⏳ **Da fare.**
+✅ **Confronto dei modelli fatto** (`02_embedding/confronta_modelli.py`).
+**Scelta: `intfloat/multilingual-e5-large-instruct` con il metodo del centroide.**
 
-**Modelli candidati** (multilingue, buoni sull'italiano): `BAAI/bge-m3`, `intfloat/multilingual-e5-large`.
-Con ~34.000 post non serve un database vettoriale: basta una matrice numpy.
+I 16.130 post puliti (`testo_pulito`) diventano embedding; la notizia pure, con lo stesso modello.
+Con questi numeri non serve un database vettoriale: basta una matrice numpy.
 
-**Due modi di confrontare la notizia con il dump**, da misurare entrambi:
-1. **un vettore per subreddit**: media dei suoi post. È semplice, ma per sub generalisti
-   (r/Italia) la media diventa vaga;
-2. **confronto con i singoli post**: si cercano i ~200 post più simili alla notizia e si assegna
-   un punteggio a ogni subreddit in base ai suoi post più vicini (es. media dei 3 migliori), non
-   al numero di post, altrimenti vincono sempre i sub grandi.
+**Due metodi per il punteggio dei subreddit** (`src/candidati.py`):
+1. **centroide**: un vettore per subreddit, la media dei suoi post;
+2. **vicini k**: confronto con i singoli post, il punteggio di un sub è la media delle sue k
+   similarità migliori (non conta il numero di post, altrimenti vincono i sub grandi).
 
-I 20 subreddit con il punteggio più alto passano alla Fase 6.
+**Modelli** (`src/embedding.py`), tutti con testi tagliati a 512 token, float16 su GPU:
+
+| Nome | Modello | Prefissi | Tempo (GPU) |
+|---|---|---|---|
+| `bge-m3` | BAAI/bge-m3 | – | 312 s |
+| `e5-large` | intfloat/multilingual-e5-large | `query:` / `passage:` | 291 s |
+| `e5-large-instruct` | intfloat/multilingual-e5-large-instruct | istruzione sulla query | 172 s |
+| `qwen3-0.6b` | Qwen/Qwen3-Embedding-0.6B | istruzione sulla query | 405 s |
+
+`Alibaba-NLP/gte-multilingual-base` è stato provato e tolto: richiede `trust_remote_code` e con
+`transformers` 5 va in errore sulla GPU.
+
+**Risultati** (824 articoli, metodo migliore per modello; tutto in `02_embedding/output/risultati.csv`):
+
+| Modello | Metodo | r@1 | r@5 | r@10 | r@20 | mrr | macro_r@20 |
+|---|---|---|---|---|---|---|---|
+| baseline | sempre i sub più attivi | 0,415 | 0,786 | 0,862 | 0,934 | 0,574 | 0,303 |
+| bge-m3 | vicini k=3 | 0,391 | 0,705 | 0,825 | 0,909 | 0,527 | 0,809 |
+| e5-large | vicini k=3 | 0,376 | 0,721 | 0,835 | 0,936 | 0,525 | 0,741 |
+| **e5-large-instruct** | **centroide** | 0,322 | **0,779** | **0,921** | **0,967** | 0,500 | **0,847** |
+| qwen3-0.6b | centroide | 0,273 | 0,624 | 0,811 | 0,920 | 0,425 | 0,841 |
+
+**Uso.** Dopo `confronta_modelli.py` (che calcola gli embedding dei post):
+
+```bash
+.venv/bin/python 02_embedding/suggerisci.py "titolo della notizia" "descrizione o testo" [--n 20]
+```
+
+**Conclusioni.**
+- Con `e5-large-instruct` il sub giusto è tra i 20 candidati nel **96,7%** dei casi (obiettivo
+  ≥ 90%), e il risultato tiene anche sui sub piccoli (`macro_r@20` 0,85).
+- La baseline ha un buon r@20 solo perché 4 sub raccolgono il 75% degli articoli; sui sub
+  piccoli fallisce (`macro_r@20` 0,30).
+- Nessun modello batte la baseline su r@1: gli embedding trovano i candidati, la scelta finale
+  spetta a Jev (Fase 6).
+- k=1 è sempre il metodo peggiore: un solo post simile è troppo rumoroso.
+- Incertezza: circa ±1,5 punti su r@20; le differenze di `macro_r@20` sotto ~0,05 non sono
+  significative (66 sub, molti con pochi articoli).
 
 ### Fase 5 – Valutazione
 
-⏳ **Da fare.**
+✅ **Prima versione** (`src/valutazione.py`).
 
-**Dataset.** Post del dump con link a testate italiane (`ansa.it`, `ilpost.it`, `open.online`, …):
-ognuno è una notizia vera con il subreddit reale in cui è stata pubblicata.
-Serve pulizia: escludere bot e subreddit automatici (r/ANSAauto, r/Formula1_world) e spam.
-Attenzione: `domain LIKE '%.it'` prende anche `i.redd.it`/`v.redd.it`, da escludere.
+**Dataset.** Post puliti con un link a un articolo esterno, escluse le piattaforme (YouTube,
+Instagram, TikTok, Spotify, Steam, GitHub, …): **824 articoli in 66 subreddit**. Ogni articolo è
+una notizia vera; i sub in cui è stato pubblicato sono la risposta giusta (206 articoli sono in
+più sub: vale uno qualsiasi). La query è **solo il titolo**: in produzione ci sarà anche il testo,
+quindi i numeri sono prudenti.
 
-**Regola importante:** i post usati per la valutazione vanno **tolti dall'indice** della
-Fase 4, altrimenti la notizia trova se stessa e i risultati sembrano perfetti.
+**Esclusione:** per ogni articolo, i post che lo contengono (stesso url o stesso titolo) si
+tolgono dal confronto, altrimenti la notizia trova se stessa.
 
 **Metriche.**
-- `recall@20`: il subreddit reale è tra i 20 candidati? (obiettivo ≥ 90%)
-- `hit@1`, `hit@3`, `MRR` del ranking finale.
+- `r@k`: un sub giusto è tra i primi k? `r@20` è la più importante (obiettivo ≥ 90%);
+- `mrr`: media di 1/posizione del primo sub giusto;
+- `macro_r@20`: `r@20` medio per subreddit, perché il 75% degli articoli è in 4 sub
+  (oknotizie, Italia, TuttoItalia, italy);
+- una **baseline** senza testo (sempre i sub con più articoli) per capire quanto aggiungono
+  gli embedding.
 
 ### Fase 6 – Re-ranking con Jev
 
@@ -270,8 +392,14 @@ formato del dump.
 |---|---|
 | Subreddit usati | `lingua` `it` o `misto`, `quota_nsfw ≤ 0,2` |
 | Commenti corti | scartati sotto le 5 parole |
+| Post corti | scartati sotto le 4 parole (titolo + testo) |
+| Post non in italiano | scartati (`lingua`, confidenza dell'italiano < 0,2) |
+| Subreddit piccoli | esclusi sotto i 20 post puliti |
+| Post rimossi dai moderatori | scartati (configurabile in `RegolePost`) |
+| Subreddit non adatti | lista manuale in `data/subreddit_esclusi.csv` |
 | Ruolo dei dati | post al centro, commenti come supporto |
 | Codice | `src/` indipendente dalla sorgente (dump o API); script per fase in cartelle numerate |
+| Modello di embedding | `multilingual-e5-large-instruct`, metodo del centroide (miglior r@20 sui nostri dati) |
 | Re-ranker | Jev, da configurare alla fine |
 
 ## Problemi noti
@@ -279,9 +407,9 @@ formato del dump.
 - **90 file submissions su 178 sono vuoti**: abbiamo circa metà dei post del mese. I file vuoti
   vanno saltati prima della lettura (DuckDB fallisce su "too small to be a Parquet file").
 - **Subreddit non adatti con poca quota NSFW**: la soglia del 20% esclude solo femboy_italia e
-  Scapezzolate_Italiane. Restano sub per adulti o di spam con pochi post marcati NSFW (Seghe_Vip 6%,
-  sborratesuvipitaliane 8%, piedi_fetish 9%, Elisa_Bernardoni__ 12%) e sub di referral o amicizie
-  (CodiciAmicoITA, ReferralITA, AmicizieConoscenze). Per toglierli serve una lista di esclusione manuale.
+  Scapezzolate_Italiane. Gli altri (Seghe_Vip, piedi_fetish, CodiciAmicoITA, …) sono nella lista
+  manuale `data/subreddit_esclusi.csv`, usata dalla Fase 3. **La Fase 2 (commenti) non la usa
+  ancora**: i numeri della Fase 2 includono quei sub.
 - **`top_domini` nel CSV** contiene un dominio vuoto (es. `" (138)"` per r/Italia): da togliere
   nella Fase 3.
 - **L'ambiente `reddit/.pixi/`** è rotto (python da 0 byte): non va usato, c'è `.venv`.
