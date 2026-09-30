@@ -3,7 +3,7 @@ from datetime import date
 from press_reputation.reputation.models import (ArticleIntermediateScore, ArticleScoreInput, CoverageDistribution, MediaReputationScore, MediaReputationResult, ReputationConfig)
 from press_reputation.reputation.weights import (compute_sentiment, compute_recency, normalize_audience_values, compute_weight)
 
-class MediaReputationScore:
+class MediaReputationScorer:
     def __init__(self, config: ReputationConfig | None = None) -> None:
         self.config = config or ReputationConfig()
         
@@ -29,7 +29,7 @@ class MediaReputationScore:
                 
             if sentiment is not None:
                 if sentiment > 0:
-                    positive_article += 1
+                    positive_articles += 1
                 elif sentiment < 0:
                     negative_articles += 1
                 else:

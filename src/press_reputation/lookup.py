@@ -47,7 +47,7 @@ def press_review_provider_index() -> dict[str, dict[str, Any]]:
     data = load_json(path)
     result: dict[str, dict[str, Any]] = {}
     
-    collections = [data.get("immrs_promopress", []), data.get("operatori_aggiuntivi", [])]
+    collections = [data.get("immrs_promopress", []), data.get("altri_operatori_verificati", [])]
     
     for collection in collections:
         for item in collection:

@@ -216,5 +216,5 @@ class MetadataExtractor:
     def header_zone_text(page: PageRecord) -> str:
         return "\n".join(
             region.text.strip()
-            for region in page.regions if region.metdata.get("in_header_metadata_zone") and region.text and region.text.strip()
+            for region in page.regions if region.metadata.get("in_header_metadata_zone") and region.text and region.text.strip()
         )

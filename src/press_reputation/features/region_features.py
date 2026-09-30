@@ -138,7 +138,7 @@ class RegionFeatureExtractor:
                 or "articolo non cedibile" in lower
                 or "uso esclusivo" in lower
             ),
-            has_watermakr_marker=(
+            has_watermark_marker=(
                 "data stampa" in lower
                 or "articolo non cedibile" in lower
                 or "uso esclusivo" in lower
