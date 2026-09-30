@@ -61,13 +61,23 @@ def render_page_bboxes(pdf_path: Path, page_record: PageRecord, output_path: Pat
             rect = fitz.Rect(x0 * zoom, y0 * zoom, x1 * zoom, y1 * zoom)
             
             label = region.type.value
-            color = REGION_COLORS.get(label, REGION_COLORS["unknown"])
+            original_label = label
+            scope = region.metadata.get("content_scope")
+            if scope is not None:
+                label = f"{original_label} [{scope}]"
+            candidate_id = region.metadata.get("article_candidate_id")
+            if candidate_id:
+                anchor_page = region.metadata.get("article_anchor_pdf_page")
+                status = region.metadata.get("continuation_status")
+                label = f"{label} [article@{anchor_page}:{status}]"
+                
+            color = REGION_COLORS.get(original_label, REGION_COLORS["unknown"])
             
             overlay_page.draw_rect(rect, color=color, width=1.2)
             
             overlay_page.insert_text(
                 fitz.Point(rect.x0, max(rect.y0 - 4, 8)),
-                label,
+                label if label else original_label,
                 fontsize=7,
                 color=color
             )

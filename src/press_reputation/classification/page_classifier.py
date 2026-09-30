@@ -1,5 +1,5 @@
 from press_reputation.features import PageFeatureExtractor, PageFeatures
-from press_reputation.models.page import PageRecord, PageType
+from press_reputation.models.page import PageRecord, PageType, RegionType
 
 
 class PageClassifier:
@@ -8,6 +8,13 @@ class PageClassifier:
 
     def classify(self, page: PageRecord) -> PageType:
         features = self.feature_extractor.extract(page)
+        
+        section = " ".join((page.section or "").replace("_", " ").upper().split())
+        
+        has_web_footer = any(region.type == RegionType.FOOTER and (region.text or "").strip().casefold() == "web" for region in page.regions)
+        
+        if section == "WEB" and has_web_footer:
+            return PageType.WEB
 
         if self.looks_like_index(features):
             return PageType.INDEX

@@ -16,6 +16,10 @@ from press_reputation.models.page import PageRecord
 from press_reputation.reconstruction import BodyContinuationResolver
 from press_reputation.style import PdfStyleEnricher
 from press_reputation.reconstruction.body_grouping import BodyGroupingResolver
+from press_reputation.classification.web_main_content import WebMainContentResolver
+from press_reputation.reconstruction.web_article_continuation import WebArticleContinuationResolver
+from press_reputation.reconstruction.article_flow import ArticleFlowResolver
+from press_reputation.reconstruction.flow_models import FlowLink
 
 
 class PageProcessingPipeline:
@@ -33,7 +37,11 @@ class PageProcessingPipeline:
         self.boilerplate_detector = DocumentBoilerplateDetector()
         self.technical_classifier = TechnicalRegionClassifier()
         self.header_zone_detector = HeaderMetadataZoneDetector()
+        self.web_content_resolver = WebMainContentResolver()
         self.body_grouping_resolver = BodyGroupingResolver()
+        self.web_article_continuation_resolver = WebArticleContinuationResolver()
+        self.article_flow_resolver = ArticleFlowResolver()
+        self.flow_links: list[FlowLink] = []
         self.region_classifier = RegionClassifier()
         self.body_resolver = BodyContinuationResolver()
         self.metadata_extractor = MetadataExtractor()
@@ -44,6 +52,8 @@ class PageProcessingPipeline:
         pages: list[PageRecord],
         pdf_path: Path | None = None,
     ) -> list[PageRecord]:
+        self.flow_links = []
+        
         if self.enable_style_enrichment and pdf_path is not None:
             self.style_enricher.enrich_document(
                 pdf_path=pdf_path,
@@ -53,17 +63,25 @@ class PageProcessingPipeline:
         if self.enable_boilerplate_detection:
             self.boilerplate_detector.enrich(pages)
 
+        # Primo passaggio: classificazioni locali e metadata.
         for page in pages:
             self.technical_classifier.enrich(page)
             self.header_zone_detector.enrich(page)
             self.region_classifier.enrich(page)
 
-            if self.enable_body_continuation:
-                self.body_resolver.enrich(page)
-                
-            self.body_grouping_resolver.enrich(page)
-
             self.metadata_extractor.enrich(page)
             page.page_type = self.page_classifier.classify(page)
+
+        # Passaggio documentale: selezione automatica contenuto web.
+        self.web_content_resolver.enrich_document(pages)
+        self.web_article_continuation_resolver.enrich_document(pages)
+        self.flow_links = self.article_flow_resolver.resolve(pages)
+
+        # Secondo passaggio: recupero e raggruppamento.
+        for page in pages:
+            if self.enable_body_continuation:
+                self.body_resolver.enrich(page)
+
+            self.body_grouping_resolver.enrich(page)
 
         return pages

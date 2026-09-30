@@ -5,6 +5,7 @@ from press_reputation.models.page import (PageRecord, Region, RegionType)
 from press_reputation.classification.boilerplate_detector import DocumentBoilerplateDetector
 from press_reputation.classification.header_metadata_zone import HeaderMetadataZoneDetector
 from press_reputation.reconstruction import BodyContinuationResolver
+from press_reputation.normalization.text_fragment import split_text_by_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -91,32 +92,68 @@ class PageNormalizer:
                 
     def _normalize_item(self, item: dict[str, Any], collection_name: str, doc_dict: dict[str, Any]) -> list[tuple[int, Region]]:
         label = item.get("label")
-        text = item.get("text") or item.get("orig")
+        self_ref = item.get("self_ref")
+        provenances = item.get("prov") or []
+        
         region_type = self._map_region_type(label=label, collection_name=collection_name)
         
-        provenances= item.get("prov") or []
-        
         if not provenances:
-            logger.info("Docling item without provenance: collection %s, label %s, self_ref %s", collection_name, label, item.get("self_ref"))
+            logger.warning("Item without page provenance: retained in raw output: %s", self_ref)
             return []
         
-        regions: list[tuple[int, Region]] = []
+        fragments, warnings = split_text_by_provenance(item=item)
         
-        for prov in provenances:
-            page_no = prov.get("page_no")
+        for warning in warnings:
+            logger.warning("Text normalization warning for item %s: %s", self_ref, warning)
+            
+        regions: list[tuple[int, Region]] = []
+        unmapped_text_saved = False
+        
+        for fragment_index, provenance in enumerate(provenances):
+            page_no = provenance.get("page_no")
+            
             if page_no is None:
-                logger.info("Docling provenance without page_no: collection %s, label %s, self_ref %s", collection_name, label, item.get("self_ref"))
-                continue
+                logger.warning("Provenance without page number for item=%s fragment=%s", self_ref, fragment_index)
+                
+            page_no = int(page_no)
             
-            bbox = self._normalize_bbox(raw_bbox = prov.get("bbox"), page_no=page_no, doc_dict=doc_dict)
+            bbox = self._normalize_bbox(raw_bbox=provenance.get("bbox"), page_no=page_no, doc_dict=doc_dict)
             
-            region = Region(type=region_type, text=text, bbox=bbox, raw_label=label, provenance=[
-                {"self_ref": item.get("self_ref"), "collection": collection_name, "docling_label": label, "charspan": prov.get("charspan"), "raw_bbox": prov.get("bbox")}
-                ])
+            metadata: dict[str, Any] = {"source_fragment_index": fragment_index}
             
-            regions.append((int(page_no), region))
+            if self_ref:
+                metadata["region_id"] = (f"{self_ref}:page={page_no}:fragment={fragment_index}")
+                
+            if warnings:
+                metadata["normalization_warnings"] = list(warnings)
+                #Conserva il testo non associabile solo una volta evitando duplicazioni
+                if not unmapped_text_saved:
+                    metadata["unmapped_source_text"] = item.get("text")
+                    unmapped_text_saved = True
+                    
+            region = Region(
+                type=region_type,
+                text=fragments[fragment_index],
+                bbox=bbox,
+                raw_label=label,
+                metadata=metadata,
+                provenance=[
+                    {
+                        "self_ref": self_ref,
+                        "collection": collection_name,
+                        "docling_label": label,
+                        "charspan": provenance.get("charspan"),
+                        "raw_bbox": provenance.get("bbox"),
+                        "page": page_no,
+                        "text_field": "text"
+                    }
+                ],
+            )
+            
+            regions.append((page_no, region))
             
         return regions
+    
     
     def _map_region_type(self, label: str | None, collection_name: str) -> RegionType:
         
@@ -169,7 +206,7 @@ class PageNormalizer:
             
             if page_height is None:
                 logger.warning("Cannot convert BOTTOMLEFT bbox without page height: page=%s, bbox=%s", page_no, raw_bbox)
-                return [left, top, right, bottom]
+                return None
             
             x0 = left
             y0 = page_height - top
@@ -182,7 +219,7 @@ class PageNormalizer:
             return [left, top, right, bottom]
         
         logger.warning("Unknown coord_origin for bbox: page=%s, bbox=%s", page_no, raw_bbox)
-        return [left, top, right, bottom]
+        return None
     
     def _get_page_height(self, doc_dict: dict[str, Any], page_no: int) -> float | None:
         page_data = doc_dict.get("pages", {}).get(str(page_no))

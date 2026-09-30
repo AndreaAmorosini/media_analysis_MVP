@@ -1,6 +1,7 @@
 import logging
 import time
 from pathlib import Path
+import json
 
 import typer
 from rich.console import Console
@@ -10,6 +11,7 @@ from press_reputation.parsers import DoclingParser
 from press_reputation.image_analysis import enrich_article_position_thumbnails
 from press_reputation.style import PdfStyleEnricher
 from press_reputation.pipeline import PageProcessingPipeline
+from press_reputation.reconstruction.article_draft_assembler import ArticleDraftAssembler
 
 app = typer.Typer()
 console = Console()
@@ -66,8 +68,18 @@ def parse(
     pipeline = PageProcessingPipeline()
     pages = pipeline.process(pages=pages, pdf_path=pdf_path)
     
-    PdfStyleEnricher().enrich_document(pdf_path=pdf_path, pages=pages)
+    flow_dir = document_dir / "flow"
+    flow_dir.mkdir(parents=True, exist_ok=True)
     
+    (flow_dir / "links.json").write_text(
+        json.dumps([link.model_dump(mode="json") for link in pipeline.flow_links], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    drafts = ArticleDraftAssembler().assemble(pages=pages, links=pipeline.flow_links)
+    
+    (flow_dir / "article_drafts.json").write_text(
+        json.dumps([draft.model_dump(mode="json") for draft in drafts], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+        
     for page in pages:
         enrich_article_position_thumbnails(pdf_path=pdf_path, page=page)
         page_output_path = pages_dir / f"page_{page.pdf_page:03d}.json"

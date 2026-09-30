@@ -1,4 +1,4 @@
-from press_reputation.models.page import PageRecord, Region, RegionType
+from press_reputation.models.page import PageRecord, Region, RegionType, PageType
 
 
 class BodyContinuationResolver:
@@ -12,6 +12,8 @@ class BodyContinuationResolver:
             if region.type == RegionType.ARTICLE_BODY
             and region.bbox
             and not region.exclude_from_article_text
+            and region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}
+            and (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main")
         ]
 
         if not body_regions:
@@ -24,6 +26,8 @@ class BodyContinuationResolver:
             and region.bbox
             and region.text
             and not region.exclude_from_article_text
+            and region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}
+            and (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main")
         ]
 
         for candidate in candidates:
@@ -35,6 +39,11 @@ class BodyContinuationResolver:
             if best_score >= self.threshold:
                 candidate.type = RegionType.ARTICLE_BODY
                 candidate.metadata["body_continuation_score"] = round(best_score, 4)
+                
+                if page.page_type == PageType.WEB:
+                    candidate.metadata["include_in_main_body"] = {
+                        candidate.metadata.get("content_scope") == "main" and not candidate.exclude_from_article_text
+                    }
 
         return page
 
