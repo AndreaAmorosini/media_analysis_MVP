@@ -11,6 +11,8 @@ from press_reputation.classification.boilerplate_detector import (
 from press_reputation.classification.header_metadata_zone import (
     HeaderMetadataZoneDetector,
 )
+from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
+from press_reputation.classification.region_classifier import ArticleSemanticClassifier
 from press_reputation.metadata import MetadataExtractor
 from press_reputation.models.page import PageRecord
 from press_reputation.reconstruction import BodyContinuationResolver
@@ -20,6 +22,8 @@ from press_reputation.classification.web_main_content import WebMainContentResol
 from press_reputation.reconstruction.web_article_continuation import WebArticleContinuationResolver
 from press_reputation.reconstruction.article_flow import ArticleFlowResolver
 from press_reputation.reconstruction.flow_models import FlowLink
+from press_reputation.review_index.matcher import ReviewIndexMatcher
+from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
 
 
 class PageProcessingPipeline:
@@ -32,7 +36,10 @@ class PageProcessingPipeline:
         self.enable_style_enrichment = enable_style_enrichment
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
-
+        
+        
+        self.review_index_matcher = ReviewIndexMatcher()
+        self.review_index_matches: list[ReviewIndexMatch] = []
         self.style_enricher = PdfStyleEnricher()
         self.boilerplate_detector = DocumentBoilerplateDetector()
         self.technical_classifier = TechnicalRegionClassifier()
@@ -46,19 +53,15 @@ class PageProcessingPipeline:
         self.body_resolver = BodyContinuationResolver()
         self.metadata_extractor = MetadataExtractor()
         self.page_classifier = PageClassifier()
+        self.metadata_seed_classifier = MetadataSeedClassifier()
+        self.article_semantic_classifier = ArticleSemanticClassifier()
 
-    def process(
-        self,
-        pages: list[PageRecord],
-        pdf_path: Path | None = None,
-    ) -> list[PageRecord]:
+    def process(self, pages: list[PageRecord], pdf_path: Path | None = None, review_index_entries: list[ReviewIndexEntry] | None = None) -> list[PageRecord]:
         self.flow_links = []
+        self.review_index_matches = []
         
         if self.enable_style_enrichment and pdf_path is not None:
-            self.style_enricher.enrich_document(
-                pdf_path=pdf_path,
-                pages=pages,
-            )
+            self.style_enricher.enrich_document(pdf_path=pdf_path, pages=pages)
 
         if self.enable_boilerplate_detection:
             self.boilerplate_detector.enrich(pages)
@@ -66,11 +69,15 @@ class PageProcessingPipeline:
         # Primo passaggio: classificazioni locali e metadata.
         for page in pages:
             self.technical_classifier.enrich(page)
+            self.metadata_seed_classifier.enrich(page)
             self.header_zone_detector.enrich(page)
-            self.region_classifier.enrich(page)
+            self.article_semantic_classifier.enrich(page)
 
             self.metadata_extractor.enrich(page)
             page.page_type = self.page_classifier.classify(page)
+
+        if review_index_entries:
+            self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
 
         # Passaggio documentale: selezione automatica contenuto web.
         self.web_content_resolver.enrich_document(pages)

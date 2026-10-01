@@ -1,1114 +1,206 @@
 # Press Reputation
 
-Pipeline local-first per l'estrazione strutturata da PDF di rassegne stampa.
+Pipeline locale per l’estrazione strutturata di contenuti da PDF di rassegne stampa. Gestisce testo PDF estraibile e OCR selettivo, conserva dati intermedi e provenance, classifica le regioni e produce bozze di articolo quando dispone di evidenze sufficienti.
 
-L'implementazione attuale trasforma un PDF in una rappresentazione normalizzata per pagina, preservando:
+**Stato attuale:** la pipeline termina con `PageRecord[]`, link di continuazione e `ArticleDraft[]` candidati. Il modello `ArticleRecord` esiste, ma la CLI non produce ancora record finalizzati. Il modulo di reputation scoring è separato e non costituisce una sentiment analysis già integrata all’estrazione.
 
-- testo estratto
-- bounding box
-- provenance
-- label originali Docling
-- output raw Docling
-- informazioni tipografiche quando disponibili
-- classificazione tecnica delle regioni
-- classificazione semantica delle regioni
-- metadata strutturati
-- informazioni di layout editoriale
-- debug visuale con bounding box
+## Esecuzione
 
-Questa fase riguarda la preparazione strutturata dei contenuti, non la sentiment analysis o il reputation scoring finale.
+Il progetto usa Pixi e Python 3.12.
 
----
+```bash
+PYTHONPATH=src pixi run python -m press_reputation.cli parse "percorso/rassegna.pdf"
+```
 
-## Pipeline attuale
+Per generare anche gli overlay delle bounding box:
+
+```bash
+PYTHONPATH=src pixi run python -m press_reputation.cli parse "percorso/rassegna.pdf" --debug-bbox
+```
+
+L’opzione `--output-dir` permette di scegliere la directory dei risultati; il valore predefinito è `results/`.
+
+## Flusso implementato
 
 ```text
 PDF
-↓
-DoclingParser
-↓
-raw Docling output
-↓
-PageNormalizer
-↓
-PageProcessingPipeline
-   ├── PdfStyleEnricher
-   ├── DocumentBoilerplateDetector
-   ├── TechnicalRegionClassifier
-   ├── HeaderMetadataZoneDetector
-   ├── RegionClassifier
-   ├── BodyContinuationResolver
-   ├── BodyGroupingResolver
-   ├── MetadataExtractor
-   └── PageClassifier
-↓
-Image analysis su article_position_thumbnail
-↓
-PageRecord[]
-↓
-JSON per pagina
-↓
-debug bbox opzionale
+  │
+  ├─ DocumentProfiler
+  │    misura testo PDF e copertura immagini per pagina
+  │
+  ├─ DoclingParser
+  │    conversione del PDF con OCR disattivato
+  │    └─ per le sole pagine selezionate:
+  │       rasterizzazione della pagina → conversione con OCR
+  │
+  ├─ PageNormalizer
+  │    Docling → PageRecord e Region
+  │
+  ├─ merge_extraction
+  │    deduplicazione e fusione testo PDF/OCR
+  │
+  ├─ ReviewIndexParser
+  │    lettura delle tabelle indice dal raw Docling
+  │
+  ├─ PageProcessingPipeline
+  │    PdfStyleEnricher
+  │    DocumentBoilerplateDetector
+  │    per ogni pagina:
+  │      TechnicalRegionClassifier
+  │      MetadataSeedClassifier
+  │      HeaderMetadataZoneDetector
+  │      ArticleSemanticClassifier
+  │      MetadataExtractor
+  │      PageClassifier
+  │    ReviewIndexMatcher
+  │    WebMainContentResolver
+  │    WebArticleContinuationResolver
+  │    ArticleFlowResolver
+  │    per ogni pagina:
+  │      BodyContinuationResolver
+  │      BodyGroupingResolver
+  │
+  ├─ ArticleDraftAssembler
+  ├─ analisi delle miniature di posizione dell'articolo
+  └─ JSON e overlay opzionali
 ```
 
----
+L’orchestrazione dell’estrazione e del salvataggio è in `src/press_reputation/cli.py`; quella delle classificazioni e della ricostruzione intermedia è in `src/press_reputation/pipeline.py`.
 
-## Struttura del progetto
+## 1. Profiling e OCR selettivo
+
+### Decisione per pagina
+
+`profiling/document_profiler.py` usa PyMuPDF per misurare:
+
+- parole presenti nel livello testuale del PDF;
+- parole nella fascia centrale della pagina, escludendo header e footer;
+- quota di pagina occupata da immagini, stimata su una griglia.
+
+`DocumentProfilingConfig` contiene le soglie. L’OCR viene richiesto quando non c’è testo PDF ma è presente un’immagine significativa, oppure quando il testo nella parte centrale è scarso e la copertura delle immagini è elevata. Una pagina con poche parole **non** viene automaticamente inviata a OCR in assenza di altri indizi.
+
+### Estrazione
+
+`parsers/docling_parser.py` esegue una conversione Docling con `do_ocr=False`. Per ciascuna pagina selezionata crea inoltre un PDF temporaneo di una sola pagina, composto dalla sua immagine rasterizzata, e lo converte con OCR attivo. Il PDF temporaneo mantiene le dimensioni della pagina originale.
+
+`normalization/page_normalizer.py` normalizza separatamente i risultati. Le regioni testuali riportano `extraction_method="pdf_text"` oppure `"ocr"`; il metodo compare anche nella provenance. Per le regioni OCR, la CLI registra la pagina temporanea, rimappa la provenance alla pagina PDF originale e assegna un prefisso agli ID per evitare collisioni con quelli del passaggio nativo.
+
+`profiling/merge.py` evita alcune duplicazioni confrontando sovrapposizione delle bbox e somiglianza del testo. Assegna poi al profilo finale della pagina:
+
+| Valore | Significato |
+| --- | --- |
+| `native_pdf` | Il testo utilizzato proviene dal livello testuale PDF. |
+| `ocr` | Il testo utilizzato proviene soltanto dal passaggio OCR. |
+| `mixed` | Viene utilizzato testo di entrambi i passaggi. |
+| `image_only` | Sono presenti immagini, ma non testo utilizzabile. |
+| `null` | Non sono stati rilevati né testo né immagini utilizzabili. |
+
+**Precisazione:** `pdf_text` indica il canale da cui la pipeline ha letto il testo. Non dimostra che il PDF fosse nato digitale: potrebbe contenere un livello OCR incorporato in precedenza.
+
+## 2. Modelli e provenance
+
+I modelli principali sono in `models/page.py`:
+
+- `PageRecord`: numero di pagina PDF, dimensioni, `page_type`, `extraction_profile`, fonte, dati del ritaglio, sezione e regioni;
+- `Region`: tipo semantico, testo, bbox, label Docling originale, `extraction_method`, provenance, stile, flag di esclusione, metadata di classificazione e identificativi intermedi;
+- `SourceInfo`: nome della fonte, tipo, data di pubblicazione, pagina originale e URL;
+- `ClippingInfo`: foglio corrente/totale e superficie, quando disponibili.
+
+`PageType` descrive la funzione editoriale della pagina (`index`, `clipping`, `web`, `pure_text`, `unknown`); è indipendente da `extraction_profile.kind`, che descrive **come è stato ottenuto il testo**.
+
+La convenzione interna delle bbox è `[x0, y0, x1, y1]`, con origine in alto a sinistra e coordinate in punti PDF. Il normalizer converte le coordinate Docling quando necessario. Conserva inoltre riferimenti come `self_ref`, label originale, `charspan`, bbox raw e pagina. Gli output Docling raw restano disponibili separatamente.
+
+## 3. Classificazione delle regioni e metadata
+
+### Stile e boilerplate
+
+`PdfStyleEnricher`, in `style/pdf_style_enricher.py`, tenta di associare alle regioni informazioni tipografiche ricavate dal PDF: font, dimensioni, bold, italic, colore e opacità. Le informazioni sono opzionali, in particolare sulle pagine OCR.
+
+`DocumentBoilerplateDetector`, in `classification/boilerplate_detector.py`, analizza testi ricorrenti nel documento e annota le regioni riconosciute come boilerplate prima delle classificazioni locali.
+
+### Ordine della classificazione locale
+
+1. **`TechnicalRegionClassifier`** riconosce elementi tecnici come watermark, rights notice, pubblicità e miniature della posizione dell’articolo. Protegge dal testo articolo le regioni escluse.
+2. **`MetadataSeedClassifier`** identifica segnali espliciti di `SOURCE_NAME`, `PRESS_REVIEW_PROVIDER`, `PUBLICATION_DATE`, `ORIGINAL_PAGE`, `CLIPPING_SHEET` e `HEADER_METADATA`. Salva il metodo di rilevamento nei metadata della regione.
+3. **`HeaderMetadataZoneDetector`** usa i seed situati nella fascia alta per delimitare una zona header. Registra `in_header_metadata_zone`, limite e ruolo della regione. Per impostazione corrente richiede che l’intera bbox della regione sia compresa nella zona prima di bloccarne la promozione editoriale.
+4. **`ArticleSemanticClassifier`** classifica il contenuto editoriale, fra cui titolo, sottotitolo, autore, location, body e heading interni. Le regioni metadata e quelle bloccate nella zona header non devono diventare componenti dell’articolo. Il nome `RegionClassifier` resta disponibile nel codice per compatibilità.
+5. **`MetadataExtractor`** popola `page.source`, `page.clipping` e `page.section` dai tipi metadata e da candidati circoscritti. Non usa l’intero testo pagina come fallback generale per date o URL. Le date OCR impossibili vengono ignorate senza interrompere l’elaborazione; l’estrazione della sezione considera soltanto label esatte in footer, header metadata o header zone.
+6. **`PageClassifier`** assegna il tipo editoriale della pagina in base alle feature aggregate.
+
+La presenza di un flag di zona non implica che tutto il testo in alto sia un metadata certo: i valori raw, le bbox e gli indizi della decisione rimangono disponibili per il debug.
+
+## 4. Indice della rassegna
+
+`review_index/parser.py` legge il **raw Docling**, non il testo delle regioni `PageRecord`. Questo è necessario perché nell’esempio presente nel repository l’indice è una tabella `document_index` i cui contenuti sono in `tables[].data.grid`; la regione tabella normalizzata ha `text=null`.
+
+Il parser attuale considera le prime pagine configurate e riconosce tabelle `document_index` a cinque colonne:
+
+1. data di pubblicazione;
+2. fonte;
+3. pagina originale seguita dal titolo;
+4. autore;
+5. pagina iniziale nella rassegna.
+
+Produce `ReviewIndexEntry` con riferimenti a tabella, riga e celle originali. Il campo `category` è previsto, ma il parser attuale lo lascia `null`: non attribuisce a ogni riga un’intestazione generale della rassegna senza un’associazione verificabile.
+
+Dopo la classificazione locale, `ReviewIndexMatcher` confronta le entry con le regioni `ARTICLE_TITLE`. La somiglianza del titolo combina confronto di caratteri e parole; data, fonte e pagina originale forniscono ulteriori evidenze o contraddizioni. I match sufficientemente forti e non ambigui vengono salvati e annotati come `review_index_prior` sulla **regione titolo**.
+
+L’indice è un *prior*, non ground truth: attualmente il match non sovrascrive titolo, autore o fonte estratti dalla pagina e non crea da solo un collegamento multipagina.
+
+## 5. Contenuto web e ricostruzione intermedia
+
+Per le pagine classificate `WEB`, `WebMainContentResolver` distingue contenuto principale e regioni esterne, annotando `content_scope` e altri indizi di layout. `WebArticleContinuationResolver` cerca catene candidate fra pagine web adiacenti, usando titolo, body, fonte, data, URL e geometria. `ArticleFlowResolver` valuta ulteriormente i confini della continuazione: un link può rimanere `candidate`, diventare `accepted` oppure `rejected`.
+
+Successivamente `BodyContinuationResolver` tenta di recuperare frammenti `UNKNOWN` vicini a body già identificati, usando colonna, larghezza, stile e distanza. `BodyGroupingResolver` assegna alle regioni body gruppi, colonne e `body_reading_order` **locali alla pagina**; non fonde le bbox originali.
+
+`ArticleDraftAssembler` raggruppa le regioni che dispongono di `metadata["article_candidate_id"]`, ordina i frammenti body e produce `ArticleDraft` con segmenti, charspan, provenance, link e warning. Non genera una bozza per ogni pagina o per ogni titolo: se manca un candidate ID o un body idoneo, non produce quel draft. I draft sono candidati e non sono approvati automaticamente per lo scoring.
+
+## 6. Output e debug
+
+Per un PDF chiamato `rassegna.pdf`, la CLI scrive sotto `results/rassegna/`:
 
 ```text
-src/press_reputation/
-├── models/
-│   ├── __init__.py
-│   ├── page.py
-│   └── article.py
-│
-├── parsers/
-│   ├── __init__.py
-│   ├── base.py
-│   └── docling_parser.py
-│
-├── normalization/
-│   ├── __init__.py
-│   └── page_normalizer.py
-│
-├── pipeline.py
-│
-├── features/
-│   ├── __init__.py
-│   ├── region_features.py
-│   └── page_features.py
-│
-├── classification/
-│   ├── __init__.py
-│   ├── region_classifier.py
-│   ├── technical_region_classifier.py
-│   ├── page_classifier.py
-│   ├── header_metadata_zone.py
-│   └── boilerplate_detector.py
-│
-├── reconstruction/
-│   ├── __init__.py
-│   ├── body_continuation.py
-│   └── body_grouping.py
-│
-├── metadata/
-│   ├── __init__.py
-│   └── metadata_extractor.py
-│
-├── style/
-│   ├── __init__.py
-│   └── pdf_style_enricher.py
-│
-├── image_analysis/
-│   ├── __init__.py
-│   └── position_thumbnail.py
-│
-├── visualization/
-│   ├── __init__.py
-│   └── bbox_overlay.py
-│
-├── reputation/
-│   ├── __init__.py
-│   ├── models.py
-│   ├── weights.py
-│   ├── scoring.py
-│   └── bootstrap.py
-│
-├── resources/
-│   ├── agenzie_rassegna_stampa_italia.json
-│   ├── comuni_italiani.json
-│   └── newspaper.json
-│
-├── lookup.py
-├── config.py
-└── cli.py
+results/rassegna/
+├── profiling/
+│   └── document.json
+├── raw/
+│   ├── document.json
+│   └── ocr_page_NNN.json          # solo per pagine OCR elaborate
+├── pages/
+│   └── page_NNN.json
+├── flow/
+│   ├── links.json
+│   ├── article_drafts.json
+│   ├── review_index_entries.json
+│   └── review_index_matches.json
+└── debug/
+    └── page_NNN.png              # solo con --debug-bbox
 ```
 
----
+Gli overlay visualizzano bbox, tipo regione e, quando presenti, `content_scope` e informazioni sulla catena candidata. Le provenance complete e i dettagli delle decisioni sono nei JSON, non tutti nelle etichette dell’overlay.
 
-## Ordine logico dei moduli
+`image_analysis/position_thumbnail.py` arricchisce le miniature tecniche con indizi sulla posizione dell’articolo nella pagina originale; questo arricchimento viene eseguito dalla CLI prima del salvataggio dei `PageRecord`.
 
-### 1. `models`
+## 7. Configurazione
 
-Contiene i modelli dati Pydantic v2.
+`src/press_reputation/config.py` contiene configurazioni per:
 
-File principali:
+- profiling e OCR (`DocumentProfilingConfig`);
+- matching dell’indice (`ReviewIndexConfig`);
+- geometria della zona metadata (`HeaderMetadataConfig`);
+- alcune soglie di classificazione (`RegionClassificationConfig`).
 
-```text
-models/page.py
-models/article.py
-```
+Alcuni componenti hanno ancora proprie configurazioni o valori interni, per esempio `WebContinuationConfig`, `BodyGroupingConfig` e la soglia del `BodyContinuationResolver`. **Non tutte le soglie sono già centralizzate né ogni campo di `config.py` è necessariamente usato da tutti i componenti.**
 
-Modelli principali:
+## 8. Stato e limiti noti
 
-- `PageRecord`
-- `Region`
-- `SourceInfo`
-- `ClippingInfo`
-- `ArticleRecord`
+- `ArticleRecord` è definito in `models/article.py`, ma non esiste ancora un passaggio CLI `ArticleDraft → ArticleRecord`.
+- Il collegamento e il clustering sono più sviluppati per i casi web che per i clipping cartacei multipagina. `Region.article_id` e `metadata["article_candidate_id"]` non rappresentano ancora un’identità articolo unificata.
+- L’ordine del body prodotto dal raggruppamento è locale alla pagina e prevalentemente geometrico; non costituisce una garanzia generale di reading order su layout complessi.
+- Il recupero corrente di frammenti body non è un’espansione iterativa della catena: confronta i candidati con i body disponibili all’inizio del passaggio.
+- Il parser dell’indice supporta al momento lo schema tabellare Docling a cinque colonne implementato in `review_index/parser.py`; indici con altri layout possono non produrre entry.
+- Il fuzzy matching dell’indice è applicato al **titolo**. La fonte viene confrontata con normalizzazione ed exact match, non con un sistema generale di alias e fuzzy lookup.
+- Non è ancora implementata una fase dedicata che produca `body_raw` e `body_clean` con dehyphenation e ricostruzione dei paragrafi.
+- Esistono i moduli `reputation/`, ma la CLI di parsing non esegue sentiment analysis target-aware né calcola automaticamente un Media Reputation Score dagli `ArticleDraft`.
 
-`PageRecord` rappresenta una pagina PDF normalizzata.
-
-Campi principali:
-
-```text
-document_id
-pdf_page
-page_type
-section
-page_width
-page_height
-source
-clipping
-regions
-```
-
-Ogni `Region` conserva:
-
-```text
-type
-text
-bbox
-raw_label
-provenance
-metadata
-style
-boilerplate
-boilerplate_frequency
-exclude_from_article_text
-article_id
-```
-
-Tipi regione principali:
-
-```text
-header_metadata
-source_name
-press_review_provider
-publication_date
-original_page
-clipping_sheet
-location
-article_title
-article_subtitle
-article_section_header
-article_body
-author
-image
-article_position_thumbnail
-caption
-watermark
-rights_notice
-footer
-sidebar
-advertisement
-navigation
-related_content
-unknown
-```
-
----
-
-### 2. `parsers`
-
-Contiene l'astrazione dei parser e l'adapter Docling.
-
-File principali:
-
-```text
-parsers/base.py
-parsers/docling_parser.py
-```
-
-`DocumentParser` definisce l'interfaccia astratta.
-
-`DoclingParser` usa Docling per elaborare il PDF.
-
-Responsabilità:
-
-- ricevere il path del PDF
-- verificare che il file esista
-- eseguire la conversione con Docling
-- restituire il documento Docling raw
-- salvare il raw output in JSON
-
-Output:
-
-```text
-raw/docling.json
-```
-
----
-
-### 3. `normalization`
-
-File principale:
-
-```text
-normalization/page_normalizer.py
-```
-
-`PageNormalizer` ora fa solo normalizzazione strutturale:
-
-```text
-DoclingDocument
-↓
-PageRecord[] grezzi
-```
-
-Responsabilità:
-
-- inizializzare una `PageRecord` per ogni pagina PDF
-- leggere elementi Docling
-- estrarre testo
-- estrarre bounding box
-- normalizzare coordinate bbox
-- conservare provenance
-- conservare `raw_label`
-- popolare `page_width` e `page_height`
-
-Importante:
-
-```text
-Docling section_header NON viene convertito automaticamente in article_title.
-```
-
-Il raw label viene conservato:
-
-```json
-{
-  "type": "unknown",
-  "raw_label": "section_header"
-}
-```
-
-La classificazione semantica avviene dopo, nella pipeline.
-
----
-
-### 4. `pipeline`
-
-File:
-
-```text
-pipeline.py
-```
-
-Contiene:
-
-```python
-PageProcessingPipeline
-```
-
-Responsabilità:
-
-```text
-PageRecord[] grezzi
-↓
-PageRecord[] arricchiti e classificati
-```
-
-Ordine attuale:
-
-```text
-PdfStyleEnricher
-DocumentBoilerplateDetector
-TechnicalRegionClassifier
-HeaderMetadataZoneDetector
-RegionClassifier
-BodyContinuationResolver
-BodyGroupingResolver
-MetadataExtractor
-PageClassifier
-```
-
-La pipeline è separata dal normalizer per rendere testabili i singoli step.
-
----
-
-### 5. `style`
-
-File principale:
-
-```text
-style/pdf_style_enricher.py
-```
-
-`PdfStyleEnricher` prova ad arricchire le regioni usando PyMuPDF.
-
-Utilizza informazioni PDF native quando disponibili.
-
-Per ogni regione tenta di popolare:
-
-```json
-"style": {
-  "font_names": [],
-  "dominant_font": null,
-  "median_font_size": null,
-  "max_font_size": null,
-  "bold_ratio": null,
-  "italic_ratio": null,
-  "dominant_color": null,
-  "median_opacity": null
-}
-```
-
-Le informazioni sono opzionali.
-
-Su PDF scannerizzati o OCR-only la pipeline non deve rompersi.
-
----
-
-### 6. `features`
-
-File principali:
-
-```text
-features/region_features.py
-features/page_features.py
-```
-
-#### `RegionFeatureExtractor`
-
-Estrae feature da una singola regione:
-
-- lunghezza testo
-- numero parole
-- uppercase ratio
-- URL
-- date
-- marker clipping
-- marker web
-- marker autore
-- marker advertisement
-- marker watermark
-- marker rights notice
-- bbox e posizione relativa
-- riconoscimento testate
-- riconoscimento provider rassegna stampa
-- riconoscimento comuni italiani
-
-#### `PageFeatureExtractor`
-
-Estrae feature aggregate dalla pagina:
-
-- numero regioni
-- numero immagini
-- numero regioni body
-- numero regioni unknown
-- marker clipping
-- marker web
-- entry indice
-- ratio immagini/unknown
-
----
-
-### 7. `lookup`
-
-File:
-
-```text
-lookup.py
-```
-
-Carica e indicizza risorse locali.
-
-Risorse:
-
-```text
-resources/newspaper.json
-resources/comuni_italiani.json
-resources/agenzie_rassegna_stampa_italia.json
-```
-
-Funzioni principali:
-
-- `get_newspaper`
-- `is_known_newspaper`
-- `get_press_review_provider`
-- `is_press_review_provider`
-- `find_municipalities`
-
-Il lookup dei comuni supporta anche nomi composti:
-
-```text
-Torre del Greco
-Castellammare di Stabia
-San Giorgio a Cremano
-Sant'Antonio Abate
-```
-
-La detection delle testate/provider ha precedenza logica sulla location, per evitare casi come:
-
-```text
-CRONACHE DI NAPOLI
-```
-
-classificati erroneamente come luogo.
-
----
-
-### 8. `classification`
-
-Contiene componenti di classificazione separati.
-
----
-
-#### 8.1 `TechnicalRegionClassifier`
-
-File:
-
-```text
-classification/technical_region_classifier.py
-```
-
-Classifica regioni tecniche prima della classificazione semantica.
-
-Gestisce:
-
-```text
-rights_notice
-watermark
-advertisement
-article_position_thumbnail
-caption/image protection
-```
-
-Le regioni tecniche vengono escluse dal testo articolo quando necessario:
-
-```json
-{
-  "exclude_from_article_text": true
-}
-```
-
-Esempi:
-
-```text
-© RIPRODUZIONE RISERVATA
-→ rights_notice
-
-Data Stampa 1667-Data Stampa 1667
-→ watermark
-
-pubblicità / adv / ads
-→ advertisement
-```
-
----
-
-#### 8.2 `HeaderMetadataZoneDetector`
-
-File:
-
-```text
-classification/header_metadata_zone.py
-```
-
-Identifica una zona iniziale della pagina dedicata ai metadata della rassegna.
-
-Seed principali:
-
-```text
-source_name
-press_review_provider
-publication_date
-original_page
-clipping_sheet
-header_metadata
-```
-
-La zona header serve a evitare che i metadata vengano classificati come:
-
-```text
-article_title
-article_body
-location
-author
-```
-
-Le regioni nella zona possono ricevere:
-
-```json
-{
-  "metadata": {
-    "in_header_metadata_zone": true
-  }
-}
-```
-
-La zona è conservativa e limitata alla parte alta della pagina.
-
----
-
-#### 8.3 `DocumentBoilerplateDetector`
-
-File:
-
-```text
-classification/boilerplate_detector.py
-```
-
-Identifica testi ricorrenti nel documento.
-
-Confronta:
-
-```text
-normalized text
-frequenza su pagine
-```
-
-Se una regione compare su una quota significativa di pagine:
-
-```json
-{
-  "boilerplate": true,
-  "boilerplate_frequency": 0.87
-}
-```
-
-Le regioni boilerplate possono essere escluse dal testo articolo.
-
----
-
-#### 8.4 `RegionClassifier`
-
-File:
-
-```text
-classification/region_classifier.py
-```
-
-Classifica semanticamente le regioni non tecniche.
-
-Gestisce:
-
-```text
-source_name
-press_review_provider
-header_metadata
-publication_date
-original_page
-clipping_sheet
-location
-navigation
-related_content
-author
-article_title
-article_subtitle
-article_section_header
-article_body
-```
-
-Punti importanti:
-
-- non gestisce più regioni tecniche già classificate;
-- protegge regioni con `exclude_from_article_text`;
-- non assume che `section_header` Docling sia titolo principale;
-- supporta sottotitoli sopra o sotto il titolo;
-- riconosce heading interni come `article_section_header`;
-- riconosce autori espliciti e, in modo contestuale, autori impliciti;
-- non impone più rigidamente “un titolo per pagina”.
-
----
-
-#### 8.5 `PageClassifier`
-
-File:
-
-```text
-classification/page_classifier.py
-```
-
-Classifica la pagina in:
-
-```text
-index
-clipping
-web
-pure_text
-unknown
-```
-
-Usa feature aggregate della pagina.
-
----
-
-### 9. `reconstruction`
-
-Contiene componenti di ricostruzione logica.
-
----
-
-#### 9.1 `BodyContinuationResolver`
-
-File:
-
-```text
-reconstruction/body_continuation.py
-```
-
-Recupera frammenti brevi di body rimasti `unknown`.
-
-Non abbassa semplicemente la soglia del body seed.
-
-Strategia:
-
-```text
-body seed affidabili
-+
-unknown vicini/stilisticamente coerenti
-↓
-article_body
-```
-
-Feature usate:
-
-- stessa colonna
-- larghezza simile
-- font size simile
-- continuità verticale
-
-Scrive:
-
-```json
-{
-  "metadata": {
-    "body_continuation_score": 0.73
-  }
-}
-```
-
----
-
-#### 9.2 `BodyGroupingResolver`
-
-File:
-
-```text
-reconstruction/body_grouping.py
-```
-
-Non fonde fisicamente le bbox.
-
-Assegna invece un gruppo logico alle regioni `article_body`.
-
-Esempio:
-
-```json
-{
-  "type": "article_body",
-  "metadata": {
-    "body_group_id": "body_001",
-    "body_reading_order": 3
-  }
-}
-```
-
-Questo preserva provenance e bounding boxes originali.
-
----
-
-### 10. `metadata`
-
-File principale:
-
-```text
-metadata/metadata_extractor.py
-```
-
-Estrae metadata strutturati.
-
-Campi principali:
-
-- source name
-- source type
-- publication date
-- original page
-- sheet current / total
-- surface percent
-- URL
-- section
-
-Esempi:
-
-```text
-16-SET-2023
-→ publication_date = 2023-09-16
-
-da pag. 17
-→ original_page = 17
-
-foglio 1 / 2
-→ sheet_current = 1
-→ sheet_total = 2
-
-Superficie 47 %
-→ surface_percent = 47.0
-```
-
-Il fallback su tutto il testo pagina è stato evitato.
-
-Ordine preferito:
-
-```text
-explicit metadata regions
-↓
-header metadata zone
-↓
-fallback molto limitato
-```
-
-Questo evita che contenuto articolo venga interpretato come metadata.
-
----
-
-### 11. `image_analysis`
-
-File principale:
-
-```text
-image_analysis/position_thumbnail.py
-```
-
-Analizza regioni classificate come:
-
-```text
-article_position_thumbnail
-```
-
-Queste immagini rappresentano la posizione dell’articolo nella pagina originale del giornale.
-
-Calcola:
-
-- area relativa occupata dall’articolo
-- posizione verticale:
-  - top
-  - middle
-  - bottom
-- posizione orizzontale:
-  - left
-  - center
-  - right
-- zona combinata:
-  - top_left
-  - top_center
-  - top_right
-  - middle_left
-  - middle_center
-  - middle_right
-  - bottom_left
-  - bottom_center
-  - bottom_right
-- prominence layout
-
-La prominence usa:
-
-- pagina originale
-- area relativa
-- posizione verticale
-
-Esempio:
-
-```json
-{
-  "type": "article_position_thumbnail",
-  "metadata": {
-    "technical_image": true,
-    "exclude_from_article_media": true,
-    "detected_article_marker": true,
-    "article_marker_bbox_in_thumbnail": [0.62, 0.12, 0.91, 0.38],
-    "original_page_relative_area": 0.075,
-    "original_page_vertical_area": "top",
-    "original_page_horizontal_area": "right",
-    "original_page_zone": "top_right",
-    "original_page_for_prominence": 8,
-    "estimated_prominence": "medium",
-    "prominence_score": 0.48
-  }
-}
-```
-
-Questa prominence è una feature di layout editoriale, non un reputation score.
-
----
-
-### 12. `visualization`
-
-File principale:
-
-```text
-visualization/bbox_overlay.py
-```
-
-Genera immagini diagnostiche con bounding box e label.
-
-Input:
-
-```text
-PDF + PageRecord
-```
-
-Output:
-
-```text
-PNG con bounding box e label
-```
-
-Serve per debug manuale della classificazione.
-
----
-
-### 13. `reputation`
-
-Contiene il primo motore matematico per Media Reputation Score.
-
-File principali:
-
-```text
-reputation/models.py
-reputation/weights.py
-reputation/scoring.py
-reputation/bootstrap.py
-```
-
-Il modulo non implementa ancora sentiment analysis.
-
-Riceve conteggi già calcolati:
-
-```text
-positive_sentences
-negative_sentences
-neutral_sentences
-```
-
-Calcola:
-
-- sentiment articolo
-- prominence
-- recency
-- audience normalization
-- source relevance
-- article weight
-- Media Reputation Score
-- visibility
-- coverage distribution
-- bootstrap confidence interval
-
-Il Media Reputation Score è una proxy della direzione della copertura mediatica, non una misura diretta dell’opinione pubblica.
-
----
-
-## Convenzione bounding box
-
-La convenzione interna è:
-
-```text
-[x0, y0, x1, y1]
-```
-
-Coordinate:
-
-```text
-origine: top-left
-unità: punti PDF
-asse Y: cresce verso il basso
-```
-
-Docling può produrre coordinate con origine diversa.
-
-Il normalizer converte le coordinate quando necessario.
-
----
-
-## Output generato
-
-Gli output sono organizzati fuori da `src`.
-
-Struttura consigliata:
-
-```text
-results/
-└── nome_documento/
-    ├── raw/
-    │   └── docling.json
-    ├── pages/
-    │   ├── page_001.json
-    │   ├── page_002.json
-    │   └── ...
-    └── debug/
-        ├── page_001.png
-        ├── page_002.png
-        └── ...
-```
-
----
-
-## Esempio semplificato di `PageRecord`
-
-```json
-{
-  "document_id": "Evidenze Rassegna 24042026.pdf",
-  "pdf_page": 5,
-  "page_type": "clipping",
-  "section": "STAMPA_LOCALE",
-  "page_width": 595.0,
-  "page_height": 842.0,
-  "source": {
-    "name": "Metropolis",
-    "type": "newspaper",
-    "publication_date": "2026-04-24",
-    "original_page": 7,
-    "url": null
-  },
-  "clipping": {
-    "sheet_current": 1,
-    "sheet_total": 2,
-    "surface_percent": null
-  },
-  "regions": [
-    {
-      "type": "source_name",
-      "text": "Metropolis",
-      "bbox": [250.0, 20.0, 340.0, 42.0],
-      "raw_label": "text",
-      "metadata": {},
-      "style": {},
-      "exclude_from_article_text": false
-    },
-    {
-      "type": "article_title",
-      "text": "Veleni nel Sarno Stretta della Procura sulle aziende «nere»",
-      "bbox": [90.0, 110.0, 510.0, 260.0],
-      "raw_label": "section_header"
-    },
-    {
-      "type": "article_subtitle",
-      "text": "Blitz della capitaneria: sigilli ad un cantiere nautico...",
-      "bbox": [90.0, 265.0, 510.0, 320.0],
-      "raw_label": "text"
-    },
-    {
-      "type": "author",
-      "text": "Michele De Feo",
-      "metadata": {
-        "author_detection": "implicit_contextual"
-      }
-    },
-    {
-      "type": "article_body",
-      "text": "Prosegue senza sosta l'offensiva...",
-      "metadata": {
-        "body_group_id": "body_001",
-        "body_reading_order": 1
-      }
-    },
-    {
-      "type": "watermark",
-      "text": "Data Stampa 1667-Data Stampa 1667",
-      "exclude_from_article_text": true
-    },
-    {
-      "type": "article_position_thumbnail",
-      "bbox": [470.0, 700.0, 560.0, 810.0],
-      "metadata": {
-        "technical_image": true,
-        "exclude_from_article_media": true,
-        "estimated_prominence": "medium",
-        "prominence_score": 0.48
-      }
-    }
-  ]
-}
-```
-
----
-
-## Comandi utili
-
-### Parsing completo
-
-```bash
-PYTHONPATH=src pixi run python -m press_reputation.cli parse "Data/2026/Aprile/Evidenze Rassegna 24042026.pdf"
-```
-
-### Parsing con debug bbox
-
-```bash
-PYTHONPATH=src pixi run python -m press_reputation.cli parse "Data/2026/Aprile/Evidenze Rassegna 24042026.pdf" --debug-bbox
-```
-
----
-
-## Dipendenze principali
-
-Il progetto usa Pixi.
-
-Dipendenze principali:
-
-- Python 3.12
-- Docling
-- Pydantic v2
-- Typer
-- Rich
-- orjson
-- python-dateutil
-- tqdm
-- PyMuPDF
-- pytest
-- ruff
-
----
-
-## Stato attuale
-
-Implementato:
-
-- modelli dati Pydantic
-- astrazione parser
-- parser Docling
-- raw JSON export
-- normalizzazione strutturale PageRecord
-- pipeline post-normalizzazione separata
-- style enrichment opzionale
-- feature extraction regioni/pagine
-- lookup testate/provider/comuni
-- classificazione tecnica
-- header metadata zone
-- boilerplate detection
-- classificazione semantica regioni
-- body continuation
-- body grouping
-- metadata extraction conservativa
-- page classification
-- image analysis per article position thumbnail
-- debug bbox
-- primo modulo matematico Media Reputation Score
-
-Non implementato completamente:
-
-- article reconstruction multipagina
-- clustering articoli
-- OCR/logo matching per testate solo grafiche
-- sentiment analysis
-- entity/company relevance
-- benchmark formale con altri parser
-
----
-
-## Principi attuali
-
-- Il parser resta separato dal normalizer.
-- Il normalizer non fa classificazione semantica.
-- La pipeline semantica è orchestrata separatamente.
-- I modelli dati non dipendono da Docling.
-- L'output raw Docling viene conservato.
-- Le bounding box vengono mantenute.
-- La provenance viene conservata.
-- Le classificazioni sono conservative.
-- I metadata non vengono inventati.
-- I watermark e rights notice sono esclusi dal testo articolo.
-- Non si fondono fisicamente bbox distinte del body.
-- Il body logico viene rappresentato tramite metadata di gruppo.
-- Non vengono usati LLM o API esterne.
-- Le feature di layout editoriale non sono sentiment score.
+**Principio operativo:** conservare raw Docling, profili di estrazione, regioni originali, provenance, indizi e warning. Le decisioni incerte devono restare visibili nei dati intermedi, anziché essere presentate come articoli finali certi.

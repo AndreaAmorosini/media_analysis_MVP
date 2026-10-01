@@ -12,6 +12,10 @@ from press_reputation.image_analysis import enrich_article_position_thumbnails
 from press_reputation.style import PdfStyleEnricher
 from press_reputation.pipeline import PageProcessingPipeline
 from press_reputation.reconstruction.article_draft_assembler import ArticleDraftAssembler
+from press_reputation.config import DocumentProfilingConfig
+from press_reputation.profiling.document_profiler import DocumentProfiler
+from press_reputation.profiling.merge import merge_extraction
+from press_reputation.review_index.parser import ReviewIndexParser
 
 app = typer.Typer()
 console = Console()
@@ -52,21 +56,58 @@ def parse(
     debug_dir = document_dir / "debug"
     debug_dir.mkdir(parents=True, exist_ok=True)
     
-    parser = DoclingParser()
     
+    profiling_config = DocumentProfilingConfig()
+    profile = DocumentProfiler(profiling_config).profile(pdf_path)
+    
+    parser = DoclingParser()
     console.print(f"[bold]Parsing document:[/bold] {pdf_path.name}")
     console.print(f"[bold]Parser:[/bold] {parser.name}")
     
-    document = parser.extract(pdf_path)
+    extracted = parser.extract_with_profile(pdf_path, profile, profiling_config)
     
     raw_output_path = raw_dir / "document.json"
-    parser.save_raw_json(document, raw_output_path)
+    parser.save_raw_json(extracted.native_document, raw_output_path)
     
     normalizer = PageNormalizer()
-    pages = normalizer.normalize(document, document_id=pdf_path.name)
+    pages = normalizer.normalize(extracted.native_document, document_id=pdf_path.name, extraction_method="pdf_text")
+    
+    ocr_pages = {}
+    for original_page_number, ocr_document in extracted.ocr_documents.items():
+        ocr_raw_path = (raw_dir / f"ocr_page_{original_page_number:03d}.json")
+        parser.save_raw_json(ocr_document, ocr_raw_path)
+        
+        temporary_pages = normalizer.normalize(ocr_document, document_id=pdf_path.name, extraction_method="ocr")
+        
+        if not temporary_pages:
+            profile.pages[original_page_number].warnings.append("ocr_produced_no_page")
+            continue
+        
+        ocr_page = temporary_pages[0]
+        ocr_page.pdf_page = original_page_number
+        
+        for region in ocr_page.regions:
+            for provenance in region.provenance:
+                provenance["extraction_pass"] = "ocr_image_page"
+                provenance["temporary_pdf_page"] = provenance.get("page")
+                provenance["page"] = original_page_number
+                
+            region_id = region.metadata.get("region_id")
+            if region_id:
+                region.metadata["region_id"] = (f"ocr:pdf_page={original_page_number}:{region_id}")
+                
+        ocr_pages[original_page_number] = ocr_page
+        
+    pages = merge_extraction(native_pages=pages, ocr_pages=ocr_pages, profile=profile, config=profiling_config)
+    
+    index_entries = ReviewIndexParser().parse(extracted.native_document, document_id=pdf_path.name)
+    
+    profiling_dir = document_dir / "profiling"
+    profiling_dir.mkdir(parents=True, exist_ok=True)
+    (profiling_dir / "document.json").write_text(profile.model_dump_json(indent=2), encoding="utf-8")
     
     pipeline = PageProcessingPipeline()
-    pages = pipeline.process(pages=pages, pdf_path=pdf_path)
+    pages = pipeline.process(pages=pages, pdf_path=pdf_path, review_index_entries=index_entries)
     
     flow_dir = document_dir / "flow"
     flow_dir.mkdir(parents=True, exist_ok=True)
@@ -78,6 +119,14 @@ def parse(
     
     (flow_dir / "article_drafts.json").write_text(
         json.dumps([draft.model_dump(mode="json") for draft in drafts], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
+    (flow_dir / "review_index_entries.json").write_text(
+        json.dumps([entry.model_dump(mode="json") for entry in index_entries], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
+    (flow_dir / "review_index_matches.json").write_text(
+        json.dumps([match.model_dump(mode="json") for match in pipeline.review_index_matches], indent=2, ensure_ascii=False), encoding="utf-8"
     )
         
     for page in pages:

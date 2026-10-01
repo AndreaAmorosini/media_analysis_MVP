@@ -1,4 +1,5 @@
 from press_reputation.models.page import PageRecord, RegionType
+from press_reputation.config import HeaderMetadataConfig
 
 
 class HeaderMetadataZoneDetector:
@@ -41,19 +42,14 @@ class HeaderMetadataZoneDetector:
         RegionType.RIGHTS_NOTICE,
     }
 
-    def __init__(
-        self,
-        max_header_relative_height: float = 0.18,
-        padding: float = 10.0,
-    ) -> None:
-        self.max_header_relative_height = max_header_relative_height
-        self.padding = padding
+    def __init__(self, config: HeaderMetadataConfig | None = None) -> None:
+        self.config = config or HeaderMetadataConfig()
 
     def enrich(self, page: PageRecord) -> PageRecord:
         if not page.page_height:
             return page
 
-        absolute_top_limit = page.page_height * self.max_header_relative_height
+        absolute_top_limit = page.page_height * self.config.max_header_relative_height
 
         seed_regions = [
             region
@@ -71,31 +67,67 @@ class HeaderMetadataZoneDetector:
 
         # La zona non può mai estendersi oltre la fascia alta configurata.
         header_bottom = min(
-            detected_bottom + self.padding,
+            detected_bottom + self.config.padding,
             absolute_top_limit,
         )
 
+        # for region in page.regions:
+        #     if not region.bbox or len(region.bbox) != 4:
+        #         continue
+
+        #     if region.type in self.PROTECTED_TYPES:
+        #         continue
+
+        #     y0 = region.bbox[1]
+
+        #     if y0 > header_bottom:
+        #         continue
+
+        #     region.metadata["in_header_metadata_zone"] = True
+
+        #     # Non convertire aggressivamente tutto ciò che è in alto.
+        #     # Converti solo regioni già plausibilmente metadata.
+        #     if region.type in self.ALLOWED_METADATA_TYPES:
+        #         continue
+
+        #     if self.looks_like_metadata_region(region):
+        #         region.type = RegionType.HEADER_METADATA
+        #         region.exclude_from_article_text = True
+        
         for region in page.regions:
-            if not region.bbox or len(region.bbox) != 4:
+            if (region.type in self.PROTECTED_TYPES or region.exclude_from_article_text and region.type not in self.SEED_TYPES):
                 continue
-
-            if region.type in self.PROTECTED_TYPES:
+            
+            box = region.bbox
+            if not box or len(box) != 4:
                 continue
-
-            y0 = region.bbox[1]
-
-            if y0 > header_bottom:
+            
+            x0, y0, x1, y1 = box
+            if x1 <= x0 or y1 <= y0:
                 continue
-
+            
+            if self.config.require_full_region_inside_zone:
+                inside = y0 >= 0 and y1 <= header_bottom
+            else:
+                inside = y0 >= 0 and y0 <= header_bottom
+                
+            if not inside:
+                continue
+            
             region.metadata["in_header_metadata_zone"] = True
-
-            # Non convertire aggressivamente tutto ciò che è in alto.
-            # Converti solo regioni già plausibilmente metadata.
-            if region.type in self.ALLOWED_METADATA_TYPES:
+            region.metadata["header_zone_bottom"] = header_bottom
+            
+            if region.type in self.SEED_TYPES:
+                region.metadata["header_zone_role"] = "seed"
                 continue
-
+            
             if self.looks_like_metadata_region(region):
+                region.metadata["type_before_header_zone"] = region.type.value
                 region.type = RegionType.HEADER_METADATA
+                region.exclude_from_article_text = True
+                region.metadata["header_zone_role"] = "metadata_marker"
+            else:
+                region.metadata["header_zone_role"] = "unresolved_header_content"
                 region.exclude_from_article_text = True
 
         return page

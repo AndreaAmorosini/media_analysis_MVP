@@ -1,3 +1,4 @@
+from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
 from press_reputation.features import RegionFeatureExtractor, RegionFeatures
 from press_reputation.models.page import PageRecord, Region, RegionType
 
@@ -6,7 +7,7 @@ PROTECTED_REGION_TYPES = {
     RegionType.ARTICLE_POSITION_THUMBNAIL,
 }
 
-class RegionClassifier:
+class ArticleSemanticClassifier:
     #Classifica le regioni di una pagina in base a caratteristiche specifiche (testuali e di layout)
     
     def __init__(self):
@@ -34,7 +35,9 @@ class RegionClassifier:
     def classify_article_section_headers(self, page: PageRecord) -> None:
         body_seen = False
         
-        ordered = sorted([region for region in page.regions if region.bbox], key = lambda region: (region.bbox[1], region.bbox[0]))
+        ordered = sorted([region for region in page.regions if (region.bbox and not region.metadata.get("in_header_metadata_zone")
+                                                                and not region.exclude_from_article_text)],
+                        key = lambda region: (region.bbox[1], region.bbox[0]))
         
         for region in ordered:
             if region.type == RegionType.ARTICLE_BODY:
@@ -46,15 +49,18 @@ class RegionClassifier:
                 region.type = RegionType.ARTICLE_SECTION_HEADER
                 
     def promote_body_near_title_to_subtitle(self, page: PageRecord) -> None:
-        titles = [region for region in page.regions if region.type == RegionType.ARTICLE_TITLE and region.bbox and len(region.bbox) == 4]
+        titles = [region for region in page.regions if (region.type == RegionType.ARTICLE_TITLE and region.bbox and len(region.bbox) == 4 and
+                                                            not region.metadata.get("in_header_metadata_zone") and
+                                                            not region.exclude_from_article_text)]
 
         if not titles:
             return
 
         title = max(titles, key=lambda region: self.title_score(region, page))
 
-        candidates = [region for region in page.regions if region.type == RegionType.ARTICLE_BODY and
-                      region.bbox and len(region.bbox) == 4 and not region.exclude_from_article_text]
+        candidates = [region for region in page.regions if (region.type == RegionType.ARTICLE_BODY and
+                        region.bbox and len(region.bbox) == 4 and not region.exclude_from_article_text and
+                                                            not region.metadata.get("in_header_metadata_zone"))]
 
         for region in candidates:
             features = self.feature_extractor.extract(region, page)
@@ -70,24 +76,17 @@ class RegionClassifier:
             return
         
     def classify_implicit_authors(self, page: PageRecord) -> None:
-        anchor_regions = [
-            region
-            for region in page.regions
-            if region.type in {RegionType.ARTICLE_TITLE, RegionType.ARTICLE_SUBTITLE}
-            and region.bbox
-        ]
+        anchor_regions = [region for region in page.regions if (region.type in {RegionType.ARTICLE_TITLE, RegionType.ARTICLE_SUBTITLE} and 
+                                                                region.bbox and
+                                                                not region.metadata.get("in_header_metadata_zone") and
+                                                                not region.exclude_from_article_text)]
 
         if not anchor_regions:
             return
 
-        candidates = [
-            region
-            for region in page.regions
-            if region.type == RegionType.UNKNOWN
-            and region.bbox
-            and region.text
-            and not region.exclude_from_article_text
-        ]
+        candidates = [region for region in page.regions if (region.type == RegionType.UNKNOWN and region.bbox and
+                                                            region.text and not region.exclude_from_article_text and
+                                                            not region.metadata.get("in_header_metadata_zone"))]
 
         for region in candidates:
             features = self.feature_extractor.extract(region, page)
@@ -103,7 +102,11 @@ class RegionClassifier:
     
     def classify(self, region: Region, page: PageRecord, features: RegionFeatures) -> RegionType:
         #L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
-        if region.exclude_from_article_text:
+        if (region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or 
+                region.type in MetadataSeedClassifier.SEED_TYPES):
+            return region.type
+        
+        if region.metadata.get("in_header_metadata_zone"):
             return region.type
         
         if region.type in {
@@ -128,23 +131,23 @@ class RegionClassifier:
         if region.type == RegionType.IMAGE:
             return RegionType.IMAGE
 
-        if features.is_press_review_provider:
-            return RegionType.PRESS_REVIEW_PROVIDER
+        # if features.is_press_review_provider:
+        #     return RegionType.PRESS_REVIEW_PROVIDER
 
-        if features.is_known_newspaper:
-            return RegionType.SOURCE_NAME
+        # if features.is_known_newspaper:
+        #     return RegionType.SOURCE_NAME
 
-        if self.like_composite_clipping_metadata(features):
-            return RegionType.HEADER_METADATA
+        # if self.like_composite_clipping_metadata(features):
+        #     return RegionType.HEADER_METADATA
 
-        if "da pag" in features.raw_text_lower:
-            return RegionType.ORIGINAL_PAGE
+        # if "da pag" in features.raw_text_lower:
+        #     return RegionType.ORIGINAL_PAGE
 
-        if features.has_foglio:
-            return RegionType.CLIPPING_SHEET
+        # if features.has_foglio:
+        #     return RegionType.CLIPPING_SHEET
 
-        if self.like_publication_date(features):
-            return RegionType.PUBLICATION_DATE
+        # if self.like_publication_date(features):
+        #     return RegionType.PUBLICATION_DATE
 
         if self.like_location(features):
             return RegionType.LOCATION
@@ -679,11 +682,9 @@ class RegionClassifier:
         return False
 
     def classify_contextual_regions(self, page: PageRecord) -> None:
-        regions = [
-            region
-            for region in page.regions
-            if region.bbox and len(region.bbox) == 4
-        ]
+        regions = [region for region in page.regions if (region.bbox and len(region.bbox) == 4 and
+                                                            not region.metadata.get("in_header_metadata_zone") and
+                                                            not region.exclude_from_article_text)]
 
         regions.sort(key=lambda item: (item.bbox[1], item.bbox[0]))
 
@@ -710,10 +711,7 @@ class RegionClassifier:
                 region.type = RegionType.ARTICLE_SUBTITLE
                 
     @staticmethod
-    def like_article_subtitle_after_title(
-        features: RegionFeatures,
-        vertical_gap: float,
-    ) -> bool:
+    def like_article_subtitle_after_title(features: RegionFeatures, vertical_gap: float) -> bool:
         if vertical_gap > 100:
             return False
 
@@ -854,3 +852,5 @@ class RegionClassifier:
             and page.clipping.sheet_current is not None
             and page.clipping.sheet_current > 1
         )
+        
+RegionClassifier = ArticleSemanticClassifier

@@ -22,19 +22,19 @@ ITALIAN_MONTHS = {
 
 class MetadataExtractor:
     # Estrae metadata dal PageRecord in maniera deterministica
-    #TODO: Da rivedere completamente per renderlo agnostico
+    #TODO: Da rivedere
     
     def enrich(self, page: PageRecord) -> PageRecord:
         text = self.metadata_text(page)
 
-        if not text:
-            text = self.header_zone_text(page)
+        # if not text:
+        #     text = self.header_zone_text(page)
 
         publication_date = self.extract_date(text)
         original_page = self.extract_original_page(text)
         sheet_info = self.extract_sheet_info(text)
         surface_percent = self.extract_surface_percent(text)
-        url = self.extract_url(self.page_text(page))
+        url = self.extract_url(self.url_candidate_text(page))
         section = self.extract_section(page)
         source_name = self.extract_source_name(page)
 
@@ -77,28 +77,40 @@ class MetadataExtractor:
     
     @staticmethod
     def metadata_text(page: PageRecord) -> str:
-        metadata_types = {
+        allowed = {
             RegionType.HEADER_METADATA,
             RegionType.SOURCE_NAME,
             RegionType.PRESS_REVIEW_PROVIDER,
             RegionType.PUBLICATION_DATE,
             RegionType.ORIGINAL_PAGE,
             RegionType.CLIPPING_SHEET,
-            RegionType.RIGHTS_NOTICE,
-            RegionType.WATERMARK
         }
 
-        return "\n".join(
-            region.text.strip()
-            for region in page.regions
-            if region.type in metadata_types
-            and region.text
-            and region.text.strip()
-        )
-    
+        return "\n".join(region.text.strip() for region in page.regions if (region.type in allowed and
+                                                                            region.text and
+                                                                            not region.metadata.get("inside_article_position_thumbnail")))
     @staticmethod
-    def page_text(page: PageRecord) -> str:
-        return "\n".join(region.text.strip() for region in page.regions if region.text and region.text.strip())
+    def url_candidate_text(page: PageRecord) -> str:
+        candidates = []
+        
+        for region in page.regions:
+            if not region.text or len(region.text) > 250:
+                continue
+            
+            if region.type in {RegionType.HEADER_METADATA, RegionType.SOURCE_NAME}:
+                candidates.append(region.text)
+                continue
+            
+            if not region.bbox or not page.page_height:
+                continue
+            
+            near_edge = (region.bbox[3] <= 0.15 * page.page_height or region.bbox[1] >= 0.85 * page.page_height)
+            if (near_edge and "http" in region.text.lower() and 
+                region.type not in {RegionType.NAVIGATION, RegionType.RELATED_CONTENT, RegionType.ADVERTISEMENT}):
+                candidates.append(region.text)
+                
+        return "\n".join(candidates)
+    
     
     @staticmethod
     def extract_sheet_info(text: str) -> Optional[tuple[int, Optional[int]]]:
@@ -142,30 +154,42 @@ class MetadataExtractor:
     
     @staticmethod
     def extract_date(text: str) -> Optional[date]:
-        italian_match = re.search(r"\b(\d{1,2})-([A-Z]{3})-(\d{4})\b", text, flags=re.IGNORECASE)
-        
-        if italian_match:
-            day = int(italian_match.group(1))
-            month_str = italian_match.group(2).upper()
-            year = int(italian_match.group(3))
-            
-            month = ITALIAN_MONTHS.get(month_str)
-            
-            if month:
-                return date(year, month, day)
-            
-        slash_match = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", text)
-        
-        if slash_match:
-            day = int(slash_match.group(1))
-            month = int(slash_match.group(2))
-            year = int(slash_match.group(3))
-            
+        italian_pattern = (
+            r"\b(\d{1,2})-([A-Z]{3})-(\d{4})\b"
+        )
+
+        for match in re.finditer(
+            italian_pattern,
+            text,
+            flags=re.IGNORECASE,
+        ):
+            month = ITALIAN_MONTHS.get(
+                match.group(2).upper()
+            )
+            if month is None:
+                continue
+
+            try:
+                return date(int(match.group(3)), month, int(match.group(1)))
+            except ValueError:
+                # Es.: 31-FEB-2026. Non interrompere il PDF.
+                continue
+
+        slash_pattern = (
+            r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b"
+        )
+
+        for match in re.finditer(slash_pattern, text):
+            year = int(match.group(3))
             if year < 100:
                 year += 2000
-            
-            return date(year, month, day)
-        
+
+            try:
+                return date(year, int(match.group(2)), int(match.group(1)))
+            except ValueError:
+                # Es.: 39/04/2026, 24/19/2026.
+                continue
+
         return None
     
     @staticmethod
@@ -179,24 +203,62 @@ class MetadataExtractor:
     @staticmethod
     def extract_section(page: PageRecord) -> str | None:
         known_sections = {
-            "stampa locale",
-            "stampa nazionale",
-            "web",
-            "radio",
-            "tv",
-            "televisione",
+            "stampa locale": "STAMPA_LOCALE",
+            "stampa nazionale": "STAMPA_NAZIONALE",
+            "web": "WEB",
+            "radio": "RADIO",
+            "tv": "TV",
+            "televisione": "TELEVISIONE",
         }
+
+        candidates: list[tuple[str, object]] = []
 
         for region in page.regions:
             if not region.text:
                 continue
 
-            normalized = region.text.strip().lower()
+            # Un testo dentro una miniatura tecnica non è una
+            # sezione della pagina PDF corrente.
+            if region.metadata.get(
+                "inside_article_position_thumbnail"
+            ):
+                continue
 
-            if normalized in known_sections:
-                return normalized.upper().replace(" ", "_")
+            eligible = (
+                region.type in {
+                    RegionType.FOOTER,
+                    RegionType.HEADER_METADATA,
+                }
+                or region.metadata.get(
+                    "in_header_metadata_zone"
+                ) is True
+            )
+            if not eligible:
+                continue
 
-        return None
+            normalized = " ".join(
+                region.text.casefold().split()
+            )
+            section = known_sections.get(normalized)
+
+            if section is not None:
+                candidates.append((section, region))
+
+        distinct = {section for section, _ in candidates}
+
+        if len(distinct) != 1:
+            # Nessun candidato oppure etichette in conflitto:
+            # non scegliere arbitrariamente la prima.
+            return None
+
+        section = next(iter(distinct))
+        for _, region in candidates:
+            region.metadata["section_detection_method"] = (
+                "bounded_exact_label"
+            )
+            region.metadata["section_value"] = section
+
+        return section
     
     @staticmethod
     def source_name_from_url(url: str) -> str | None:
@@ -211,10 +273,3 @@ class MetadataExtractor:
             return None
         
         return host
-    
-    @staticmethod
-    def header_zone_text(page: PageRecord) -> str:
-        return "\n".join(
-            region.text.strip()
-            for region in page.regions if region.metadata.get("in_header_metadata_zone") and region.text and region.text.strip()
-        )

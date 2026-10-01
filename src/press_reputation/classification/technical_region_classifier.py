@@ -30,10 +30,10 @@ class TechnicalRegionClassifier:
                 region.exclude_from_article_text = True
                 continue
             
-            if features.is_press_review_provider:
-                region.type = RegionType.PRESS_REVIEW_PROVIDER
-                region.metadata["press_review_provider_name"] = features.press_review_provider_name
-                continue
+            # if features.is_press_review_provider:
+            #     region.type = RegionType.PRESS_REVIEW_PROVIDER
+            #     region.metadata["press_review_provider_name"] = features.press_review_provider_name
+            #     continue
 
             if self.looks_like_watermark(region, features):
                 region.type = RegionType.WATERMARK

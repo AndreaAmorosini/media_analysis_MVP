@@ -4,6 +4,8 @@ from typing import Optional, Any
 
 from pydantic import BaseModel, Field
 
+from press_reputation.profiling.models import ExtractionMethod, PageExtractionProfile
+
 # Modello per rappresentare una singola pagina di un documento estratta
 
 class PageType(str, Enum):
@@ -65,6 +67,8 @@ class Region(BaseModel):
     text: Optional[str] = None
     bbox: Optional[list[float]] = None
     raw_label: Optional[str] = None
+    extraction_method: ExtractionMethod = "unknown"
+    extraction_profile: PageExtractionProfile | None = None
     provenance: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     style: dict[str, Any] = Field(default_factory=dict)
@@ -78,6 +82,7 @@ class PageRecord(BaseModel):
     document_id: str
     pdf_page: int
     page_type: PageType = PageType.UNKNOWN
+    extraction_profile: PageExtractionProfile | None = None
     section: Optional[str] = None
     page_width: Optional[float] = None
     page_height: Optional[float] = None

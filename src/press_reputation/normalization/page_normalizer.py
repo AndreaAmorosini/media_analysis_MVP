@@ -6,13 +6,14 @@ from press_reputation.classification.boilerplate_detector import DocumentBoilerp
 from press_reputation.classification.header_metadata_zone import HeaderMetadataZoneDetector
 from press_reputation.reconstruction import BodyContinuationResolver
 from press_reputation.normalization.text_fragment import split_text_by_provenance
+from press_reputation.profiling.models import ExtractionMethod
 
 logger = logging.getLogger(__name__)
 
 class PageNormalizer:
     #Converte DoclingDocument in un formato interno PageRecord (in models)
     
-    def normalize(self, document: Any, document_id: str) -> list[PageRecord]:
+    def normalize(self, document: Any, document_id: str, extraction_method: ExtractionMethod = "unknown") -> list[PageRecord]:
         doc_dict = self._to_dict(document)
         pages = self._init_pages(doc_dict, document_id)
         
@@ -20,30 +21,35 @@ class PageNormalizer:
             doc_dict=doc_dict,
             collection_name="texts",
             pages=pages,
+            extraction_method=extraction_method,
         )
         
         self._normalize_collection(
             doc_dict=doc_dict,
             collection_name="pictures",
             pages=pages,
+            extraction_method=extraction_method,
         )
         
         self._normalize_collection(
             doc_dict=doc_dict,
             collection_name="tables",
             pages=pages,
+            extraction_method=extraction_method,
         )
         
         self._normalize_collection(
             doc_dict=doc_dict,
             collection_name="key_value_items",
             pages=pages,
+            extraction_method=extraction_method,
         )
 
         self._normalize_collection(
             doc_dict=doc_dict,
             collection_name="form_items",
             pages=pages,
+            extraction_method=extraction_method,
         )
         
         return [pages[page_no] for page_no in sorted(pages)]
@@ -77,12 +83,12 @@ class PageNormalizer:
             
         return pages
     
-    def _normalize_collection(self, doc_dict: dict[str, Any], collection_name: str, pages: dict[int, PageRecord]) -> None:
+    def _normalize_collection(self, doc_dict: dict[str, Any], collection_name: str, pages: dict[int, PageRecord], extraction_method: ExtractionMethod) -> None:
         
         items = doc_dict.get(collection_name, [])
         
         for item in items:
-            regions = self._normalize_item(item=item, collection_name=collection_name, doc_dict=doc_dict)
+            regions = self._normalize_item(item=item, collection_name=collection_name, doc_dict=doc_dict, extraction_method=extraction_method)
             
             for page_no, region in regions:
                 if page_no not in pages:
@@ -90,7 +96,7 @@ class PageNormalizer:
                     continue
                 pages[page_no].regions.append(region)
                 
-    def _normalize_item(self, item: dict[str, Any], collection_name: str, doc_dict: dict[str, Any]) -> list[tuple[int, Region]]:
+    def _normalize_item(self, item: dict[str, Any], collection_name: str, doc_dict: dict[str, Any], extraction_method: ExtractionMethod) -> list[tuple[int, Region]]:
         label = item.get("label")
         self_ref = item.get("self_ref")
         provenances = item.get("prov") or []
@@ -131,12 +137,17 @@ class PageNormalizer:
                     metadata["unmapped_source_text"] = item.get("text")
                     unmapped_text_saved = True
                     
+            region_method: ExtractionMethod = (
+                extraction_method if isinstance(fragments[fragment_index], str) and collection_name != "pictures" else "unknown"
+            )
+                    
             region = Region(
                 type=region_type,
                 text=fragments[fragment_index],
                 bbox=bbox,
                 raw_label=label,
                 metadata=metadata,
+                extraction_method=region_method,
                 provenance=[
                     {
                         "self_ref": self_ref,
@@ -145,7 +156,8 @@ class PageNormalizer:
                         "charspan": provenance.get("charspan"),
                         "raw_bbox": provenance.get("bbox"),
                         "page": page_no,
-                        "text_field": "text"
+                        "text_field": "text",
+                        "extraction_method": region_method,
                     }
                 ],
             )
