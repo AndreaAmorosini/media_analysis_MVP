@@ -257,6 +257,7 @@ sono la base della Fase 5.
 | `n_post`, `n_autori` | post tenuti e autori distinti |
 | `quota_testuali`, `quota_link`, `quota_media` | quota di post testuali, con link esterno, immagini/gallerie/video |
 | `mediana_commenti`, `mediana_score` | coinvolgimento tipico |
+| `quota_rimossi` | post rimossi dai moderatori / (tenuti + rimossi): rischio di rimozione |
 | `top_domini` | 5 domini esterni più linkati |
 
 **Osservazioni.** Per immagini, gallerie e video il testo è solo il titolo: descrivono il sub
@@ -297,10 +298,32 @@ Con questi numeri non serve un database vettoriale: basta una matrice numpy.
 | **e5-large-instruct** | **centroide** | 0,322 | **0,779** | **0,921** | **0,967** | 0,500 | **0,847** |
 | qwen3-0.6b | centroide | 0,273 | 0,624 | 0,811 | 0,920 | 0,425 | 0,841 |
 
+**Peso dell'attività.** Dopo la similarità si aggiunge un punteggio di attività del subreddit,
+così a parità di pertinenza si preferiscono le community più vive (`src/candidati.py`):
+
+- **attività** = combinazione pesata (`PESI_ATTIVITA`) di `n_autori` (0,4), `mediana_commenti`
+  (0,3), `mediana_score` (0,3) in scala logaritmica, meno `quota_rimossi` (−0,3); standardizzata;
+- **punteggio finale** = similarità standardizzata per notizia + α × attività, calcolato su
+  **tutti** i 118 sub prima di prendere i primi 20 (così un sub grande appena fuori può rientrare).
+
+| α | r@1 | r@3 | mrr | r@20 | macro_r@20 | attività media top 5 |
+|---|---|---|---|---|---|---|
+| 0 (solo similarità) | 0,322 | 0,572 | 0,500 | 0,967 | 0,847 | 0,32 |
+| 0,1 | 0,335 | 0,630 | 0,517 | 0,960 | 0,841 | 0,51 |
+| **0,2** (default) | 0,351 | 0,653 | 0,531 | 0,956 | 0,825 | 0,69 |
+| 0,3 | 0,373 | 0,669 | 0,545 | 0,949 | 0,823 | 0,82 |
+| 0,5 | 0,367 | 0,672 | 0,539 | 0,934 | 0,781 | 1,02 |
+| 1,0 | 0,235 | 0,536 | 0,426 | 0,903 | 0,685 | 1,44 |
+
+Un peso piccolo migliora le prime posizioni perdendo poco sui 20 candidati; oltre 0,5 l'attività
+prevale e peggiora tutto. Default **α = 0,2** (`--alfa` in `suggerisci.py` per cambiarlo).
+Attenzione: la valutazione dice dove le persone hanno pubblicato, non dove il post ha avuto più
+successo; il guadagno in r@1 dice anche che le persone pubblicano di più nei sub attivi.
+
 **Uso.** Dopo `confronta_modelli.py` (che calcola gli embedding dei post):
 
 ```bash
-.venv/bin/python 02_embedding/suggerisci.py "titolo della notizia" "descrizione o testo" [--n 20]
+.venv/bin/python 02_embedding/suggerisci.py "titolo della notizia" "descrizione o testo" [--n 20] [--alfa 0.2]
 ```
 
 **Conclusioni.**
@@ -400,16 +423,5 @@ formato del dump.
 | Ruolo dei dati | post al centro, commenti come supporto |
 | Codice | `src/` indipendente dalla sorgente (dump o API); script per fase in cartelle numerate |
 | Modello di embedding | `multilingual-e5-large-instruct`, metodo del centroide (miglior r@20 sui nostri dati) |
+| Attività dei subreddit | aggiunta alla similarità con peso α = 0,2, prima di prendere i top 20 |
 | Re-ranker | Jev, da configurare alla fine |
-
-## Problemi noti
-
-- **90 file submissions su 178 sono vuoti**: abbiamo circa metà dei post del mese. I file vuoti
-  vanno saltati prima della lettura (DuckDB fallisce su "too small to be a Parquet file").
-- **Subreddit non adatti con poca quota NSFW**: la soglia del 20% esclude solo femboy_italia e
-  Scapezzolate_Italiane. Gli altri (Seghe_Vip, piedi_fetish, CodiciAmicoITA, …) sono nella lista
-  manuale `data/subreddit_esclusi.csv`, usata dalla Fase 3. **La Fase 2 (commenti) non la usa
-  ancora**: i numeri della Fase 2 includono quei sub.
-- **`top_domini` nel CSV** contiene un dominio vuoto (es. `" (138)"` per r/Italia): da togliere
-  nella Fase 3.
-- **L'ambiente `reddit/.pixi/`** è rotto (python da 0 byte): non va usato, c'è `.venv`.
