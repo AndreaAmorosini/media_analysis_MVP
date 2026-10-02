@@ -62,3 +62,45 @@ class IndicePost:
         """I `n` subreddit con il punteggio più alto, per ogni query."""
         ordine = np.argsort(-punteggi, axis=1)[:, :n]
         return [[str(s) for s in self.sub_nomi[r]] for r in ordine]
+
+
+# ------------------------------------------------------------------ attività dei subreddit
+
+# peso di ogni colonna di `subreddit_puliti.csv` nel punteggio di attività (negativo = penalità).
+# I conteggi si prendono in scala logaritmica: passare da 10 a 100 autori conta quanto da 100 a 1000
+PESI_ATTIVITA = {
+    "n_autori": 0.4,  # quante persone diverse pubblicano: dimensione reale della community
+    "mediana_commenti": 0.3,  # quanta discussione genera un post tipico
+    "mediana_score": 0.3,  # quanti voti prende un post tipico
+    "quota_rimossi": -0.3,  # rischio che il post venga tolto dai moderatori
+}
+_LOG = {"n_autori", "mediana_commenti", "mediana_score"}
+
+
+def punteggio_attivita(catalogo, sub_nomi, pesi: dict[str, float] = PESI_ATTIVITA) -> np.ndarray:
+    """Attività di ogni subreddit (nell'ordine di `sub_nomi`), standardizzata: media 0,
+    deviazione standard 1. `catalogo`: DataFrame di `subreddit_puliti.csv`."""
+    cat = catalogo.set_index("subreddit").reindex(list(sub_nomi))
+    totale = np.zeros(len(cat))
+    for col, peso in pesi.items():
+        x = cat[col].to_numpy(dtype=float)
+        x = np.log1p(np.maximum(x, 0)) if col in _LOG else x
+        totale += peso * _standardizza(x)
+    return _standardizza(totale)
+
+
+def combina(punteggi: np.ndarray, attivita: np.ndarray, alfa: float) -> np.ndarray:
+    """Punteggio finale = similarità standardizzata per notizia + `alfa` × attività.
+
+    Le similarità sono compresse (0,80–0,90 con e5): standardizzate dicono quanto un sub si
+    stacca dagli altri per quella notizia. Con `alfa` piccolo la similarità resta la priorità:
+    alfa = 0,3 vuol dire che un sub molto più attivo della media (+1) guadagna quanto
+    0,3 deviazioni standard di similarità.
+    """
+    z = (punteggi - punteggi.mean(axis=1, keepdims=True)) / punteggi.std(axis=1, keepdims=True)
+    return z + alfa * attivita[None, :]
+
+
+def _standardizza(x: np.ndarray) -> np.ndarray:
+    x = np.nan_to_num(x, nan=np.nanmean(x))
+    return (x - x.mean()) / (x.std() or 1.0)
