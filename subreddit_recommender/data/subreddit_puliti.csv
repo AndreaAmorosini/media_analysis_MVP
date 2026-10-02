@@ -1,119 +1,119 @@
-subreddit,n_post,n_autori,quota_testuali,quota_link,quota_media,mediana_commenti,mediana_score,top_domini
-Italia,1337,910,0.55,0.17,0.23,10.0,2.0,"open.online (18), ansa.it (17), youtu.be (11), youtube.com (11), lifestyle.everyeye.it (9)"
-CasualIT,1202,753,1.0,0.0,0.0,17.0,2.0,
-TeenagersITA,1165,577,0.4,0.01,0.59,11.0,5.0,"youtube.com (7), forms.gle (2), open.spotify.com (2), youtu.be (2), ebay.io (1)"
-sfoghi,880,642,1.0,0.0,0.0,14.0,6.0,
-ItaliaPersonalFinance,772,638,0.85,0.02,0.13,11.0,1.0,"ilsole24ore.com (3), milanofinanza.it (2), youtu.be (2), ansa.it (1), rainews.it (1)"
-ItaliaCareerAdvice,575,496,0.85,0.01,0.06,6.0,2.0,"corriere.it (1), anthropic.com (1), ilsole24ore.com (1), support.google.com (1), science.org (1)"
-ItalyMotori,490,402,0.58,0.03,0.36,11.0,4.0,"play.google.com (2), ilpost.it (1), insideevs.it (1), facebook.com (1), autoscout24.it (1)"
-Universitaly,479,410,0.93,0.03,0.04,4.0,1.0,"forms.gle (3), politicamagazine.it (2), www2.almalaurea.it (1), gofile.io (1), youtube.com (1)"
-psicologia,351,300,1.0,0.0,0.0,5.0,2.0,
-oknotizie,348,33,0.0,0.99,0.0,6.0,12.0,"ansa.it (34), lantidiplomatico.it (23), open.online (22), rainews.it (17), ilfattoquotidiano.it (15)"
-domandaonesta,338,138,0.65,0.0,0.21,17.0,2.0,
-Avvocati,305,277,0.87,0.03,0.06,7.0,3.0,"ilprocessodigitale.it (5), github.com (1), lanuovasardegna.it (1), thebill.it (1), youtube.com (1)"
-italygames,295,218,0.6,0.06,0.34,10.0,4.0,"youtube.com (10), youtu.be (2), hdblog.it (1), docs.google.com (1), crosswordie.com (1)"
-VintedItalia,289,239,0.32,0.0,0.67,7.0,3.0,
-ItalyHardware,241,187,0.68,0.05,0.22,9.0,2.0,"videocardz.com (3), hdblog.it (1), hwupgrade.it (1), youtube.com (1), idealo.it (1)"
-italy,219,126,0.28,0.47,0.26,31.0,48.0,"ilpost.it (17), corriere.it (8), youtube.com (6), youtu.be (5), key4biz.it (5)"
-DarioMocciaTwitch,218,152,0.02,0.0,0.98,0.0,2.0,youtube.com (1)
-consigli,218,186,0.97,0.0,0.03,10.5,3.0,
-IPolterGuys,215,167,0.01,0.04,0.96,0.0,1.0,"vm.tiktok.com (3), youtu.be (3), instagram.com (1), gonfaloniere.itch.io (1), youtube.com (1)"
-sentimentalITA,212,162,0.82,0.0,0.01,11.0,2.0,t.me (1)
-commercialisti,201,181,0.83,0.0,0.07,3.0,2.0,pierodibello.com (1)
-scimmieinborsa,185,113,0.62,0.01,0.37,8.0,4.0,"finanza.economia-italia.com (1), youtube.com (1)"
-ItalyFitness,180,154,0.63,0.01,0.36,7.0,2.0,forms.gle (1)
-TuttoItalia,176,13,0.0,1.0,0.0,4.0,12.5,"ansa.it (19), open.online (16), rainews.it (13), tg24.sky.it (12), hwupgrade.it (11)"
-paperearmate,170,61,0.01,0.13,0.9,0.0,7.0,"instagram.com (9), youtube.com (6), vm.tiktok.com (4), youtu.be (2), facebook.com (1)"
-istrutturare,146,136,0.6,0.0,0.36,6.0,1.0,
-TankChat,146,33,0.37,0.0,0.61,2.0,3.0,
-torino,135,119,0.82,0.02,0.1,3.0,1.0,"lasicilia.it (1), ilpost.it (1), chat.whatsapp.com (1)"
-Gatti,127,103,0.21,0.02,0.75,4.0,35.0,"youtube.com (2), printsandtease.etsy.com (1)"
-Libri,125,110,0.81,0.02,0.17,6.0,4.0,"carmillaonline.com (1), vincentrusso.substack.com (1), indiscreto.org (1)"
-ViaggiITA,118,104,0.85,0.03,0.07,4.0,1.0,"garanteprivacy.it (2), play.google.com (1)"
-ItaliaStartups,106,87,0.73,0.04,0.09,7.0,1.0,"open.substack.com (2), digitaac.it (1), inorario.toreroclub.com (1)"
-PokemonFans_ITA,92,47,0.11,0.01,0.78,4.0,6.0,youtube.com (1)
-MinecraftItalia,91,70,0.47,0.0,0.47,4.0,6.0,
-giardinaggioITA,91,71,0.15,0.03,0.81,5.0,6.0,"postimg.cc (1), amzn.eu (1), urlgeni.us (1)"
-poesiaITA,90,43,0.62,0.01,0.37,0.0,2.0,instagram.com (1)
-LavoroSenzaFiltri,90,78,0.69,0.02,0.03,4.0,1.0,"docs.google.com (1), notiziariosicurezza.it (1)"
-IA_Italia,86,52,0.63,0.09,0.13,5.0,2.0,"lucamastro.it (2), github.com (1), minerva-ai.org (1), torino.corriere.it (1), huggingface.co (1)"
-roma,85,79,0.8,0.01,0.11,5.0,4.0,auto.everyeye.it (1)
-PA_Italia,84,68,0.8,0.14,0.02,5.0,4.0,"lentepubblica.it (7), amzn.eu (1), italiaoggi.it (1), pamagazine.it (1), brocardi.it (1)"
-AdolescentITA,82,42,0.41,0.06,0.56,6.0,6.0,"youtube.com (4), vm.tiktok.com (1)"
-LaStalla,79,59,0.03,0.0,0.96,1.0,15.0,
-Calcio,76,59,0.51,0.14,0.32,2.0,2.0,"youtu.be (3), youtube.com (3), ilnapolista.it (2), calciomercato.com (1), open.substack.com (1)"
-napoli,76,58,0.68,0.22,0.05,2.0,3.5,"napolijournal.com (9), ilmattino.it (2), politicamagazine.it (2), urbanpitch.com (1), areanapoli.it (1)"
-italymusica,74,66,0.61,0.19,0.22,1.0,1.0,"youtu.be (6), youtube.com (2), voca.ro (1), on.soundcloud.com (1), lifestyle.everyeye.it (1)"
-consulentidellavoro,71,68,0.55,0.01,0.14,1.0,1.0,notiziariosicurezza.it (1)
-TooBigToFailPodcast,68,47,0.94,0.03,0.04,9.0,7.5,"justetf.com (1), youtu.be (1)"
-cucina,67,52,0.34,0.04,0.63,10.0,15.0,"youtu.be (1), youtube.com (1), gioiaeilsuomondo.forumfree.it (1)"
-scrittura,66,49,0.76,0.05,0.21,2.0,1.0,"youtu.be (1), amzn.eu (1), lindiceonline.com (1)"
-QuandoCeraloStereo,66,41,0.09,0.02,0.89,13.0,38.0,it.pornhub.com (1)
-Lostmediaitalia,64,60,0.64,0.03,0.3,2.5,5.5,youtu.be (2)
-immobiliare,64,59,0.77,0.0,0.06,5.5,2.0,
-LinkedInCringeIT,62,44,0.32,0.02,0.61,17.5,27.0,instagram.com (1)
-SinistrITA,61,28,0.28,0.08,0.62,7.0,6.0,"youtu.be (2), alternativalibertaria.org (1), pungolorosso.com (1), youtube.com (1)"
-liberali,61,28,0.38,0.2,0.38,8.0,7.0,"ansa.it (3), ilfoglio.it (2), lorenzoruffino.it (1), confindustria.it (1), stream24.ilsole24ore.com (1)"
-cinemaIT,61,37,0.72,0.03,0.23,13.0,6.0,"letterboxd.com (1), sentieriselvaggi.it (1)"
-FashionRepsIT,61,52,0.56,0.0,0.39,2.0,1.0,
-ItalyInformatica,60,57,0.75,0.02,0.23,17.0,8.0,ilpost.it (1)
-camicibianchi,59,52,1.0,0.0,0.0,11.0,12.0,
-PensieriItaliani,57,30,0.44,0.07,0.35,6.0,3.0,"rainews.it (1), open.online (1), ilfattoquotidiano.it (1), fiumana.substack.com (1)"
-xxitaly,57,55,0.79,0.0,0.12,13.0,12.0,
-vibecodingitalia,56,12,0.18,0.04,0.62,0.0,2.0,"huggingface.co (1), models.sulat.com (1)"
-fumetti,54,33,0.22,0.11,0.65,1.0,6.0,"instagram.com (3), youtube.com (2), retrofuturista.com (1)"
-politicaITA,54,11,0.04,0.91,0.09,0.0,1.0,"kulturjam.it (3), diogenenotizie.com (2), ilmanifestoinrete.it (2), umanitanova.org (2), antropocene.org (2)"
-AnimeItaly,54,47,0.43,0.02,0.56,3.0,4.0,immascorner.wordpress.com (1)
-italiabad,53,21,0.08,0.02,0.91,10.0,21.0,youtube.com (1)
-YoutubeITA,53,35,0.34,0.09,0.62,2.0,1.0,"youtube.com (3), youtu.be (1), m.youtube.com (1)"
-techcompenso,52,35,0.52,0.02,0.31,23.5,5.5,ansa.it (1)
-Itanglese,51,46,0.14,0.0,0.82,10.0,29.0,
-TrekkingItaly,51,43,0.78,0.02,0.12,4.0,2.0,t.me (1)
-ICGA,50,15,0.32,0.54,0.4,6.5,2.0,"youtube.com (13), store.steampowered.com (6), skul-dev.itch.io (1), bungie.net (1), viterbonews24.it (1)"
-rapitaliano,49,36,0.45,0.12,0.43,5.0,3.0,"open.spotify.com (2), youtube.com (2), youtu.be (1), instagram.com (1)"
-aiuto,48,45,0.46,0.02,0.1,0.0,1.0,paypal.me (1)
-Orologi,47,47,0.49,0.04,0.47,7.0,3.0,"recensioniorologi.it (1), hamiltonwatch.com (1)"
-milano,46,44,0.83,0.09,0.11,6.0,5.0,"c.org (1), lifestyle.everyeye.it (1), inorario.toreroclub.com (1), youtu.be (1)"
-Gamethology,46,26,0.17,0.0,0.76,8.0,6.5,
-Formula1Italia,46,14,0.09,0.2,0.72,2.0,9.5,"formula1.it (7), thejudge13.com (1), youtu.be (1)"
-EducazioneSessualeITA,46,36,0.85,0.02,0.02,4.0,3.5,ilfattoquotidiano.it (1)
-italyLGBT,46,37,0.93,0.02,0.04,2.0,2.0,dpscomics.com (1)
-Psicologia_Italia,44,42,0.36,0.05,0.0,0.0,1.0,"instagram.com (1), doi.org (1)"
-caparezza,44,34,0.3,0.05,0.7,4.0,17.5,"youtu.be (1), youtube.com (1)"
-fantacalcio_IT,43,31,0.44,0.0,0.49,0.0,1.0,
-MotoItaly,43,42,0.77,0.02,0.12,9.0,3.0,motoabbigliamento.it (1)
-SudItalia,43,23,0.14,0.23,0.53,1.0,5.0,"bari.corriere.it (1), torino.repubblica.it (1), napolijournal.com (1), fondoambiente.it (1), lasicilia.it (1)"
-FilosofiaITA,42,30,0.81,0.02,0.07,5.0,1.5,instagram.com (1)
-ShitItalianSay,40,22,0.18,0.0,0.8,8.0,29.0,
-Cattolicesimo,40,21,0.5,0.35,0.08,1.0,3.5,"salesalato.com (5), infovaticana.com (2), communiobiblica.org (2), informazionecattolica.it (1), catholicus.eu (1)"
-ciclismourbano,39,12,0.72,0.13,0.13,8.0,4.0,"youtube.com (2), benzinazero.wordpress.com (1), discovercars.com (1), upaonbike.com (1)"
-FotografiaItalia,39,33,0.23,0.05,0.77,2.0,6.0,youtu.be (2)
-Yunisorrisiecanzoni,37,14,0.03,0.24,0.89,3.0,2.0,"youtube.com (5), adnkronos.com (1), nonsolo.tv (1), srganzo.com (1), youtu.be (1)"
-askTransgender_Italy,37,34,1.0,0.0,0.0,4.0,4.0,
-bologna,35,29,0.71,0.09,0.14,4.0,6.0,"bolognatoday.it (1), corrieredibologna.corriere.it (1), zero.eu (1)"
-Truffaonline,33,19,0.73,0.03,0.15,0.0,2.0,youtube.com (1)
-Relazioni,32,25,0.78,0.0,0.0,7.0,6.0,
-BattagliaPerItalia,30,14,0.5,0.0,0.5,9.0,3.0,
-TransItalia,30,30,0.83,0.0,0.1,5.0,9.0,
-Genova,30,27,0.87,0.07,0.07,7.0,2.5,"lavocedigenova.it (1), real.it (1)"
-Elettricisti,30,29,0.6,0.0,0.23,8.0,2.0,
-veganita,27,24,0.67,0.04,0.26,11.0,10.0,gioiaeilsuomondo.forumfree.it (1)
-titoliorrendi,27,25,0.0,0.07,0.93,5.0,64.0,"youtube.com (1), rainews.it (1)"
-firenze,25,25,0.84,0.04,0.08,3.0,1.0,open.spotify.com (1)
-subito_it,25,23,0.32,0.08,0.4,5.0,1.0,"github.com (1), wise.com (1)"
-storia,24,20,0.21,0.25,0.58,1.0,1.5,"youtube.com (3), youtu.be (2), doi.org (1)"
-GameDevelopersItaly,24,23,0.38,0.12,0.42,3.0,6.0,"docs.google.com (1), youtube.com (1), store.steampowered.com (1)"
-UrbexItalia,23,19,0.48,0.04,0.48,1.0,5.0,youtube.com (1)
-dogs_ita,23,21,0.39,0.0,0.61,8.0,32.0,
-bandiere,23,13,0.09,0.0,0.91,5.0,22.0,
-infermieri,23,22,0.83,0.04,0.0,3.0,3.0,infermieriattivi.it (1)
-TradeRepublic_IT,23,19,0.65,0.0,0.13,3.0,4.0,
-giochidatavolo,22,20,0.55,0.05,0.14,0.0,1.0,rotteecannoni.it (1)
-JoJoITA,21,15,0.1,0.0,0.86,4.0,42.0,
-bollette,21,21,0.71,0.0,0.24,4.0,1.0,
-Sardegna,21,20,0.52,0.24,0.24,2.0,2.0,"lifestyle.everyeye.it (1), olbia.it (1), corriere.it (1), youtube.com (1), youtu.be (1)"
-ChopSubmissions,20,15,0.0,0.0,1.0,1.0,57.5,
-TheLoneGamer,20,11,0.1,0.05,0.85,2.5,102.5,open.spotify.com (1)
-Stremio_Italia,20,17,0.8,0.0,0.2,6.5,2.5,
-Ticino,20,15,0.65,0.05,0.3,5.5,6.0,swissinfo.ch (1)
-locandadeldragorosso,20,17,0.75,0.1,0.1,7.0,4.0,spreaker.com (2)
+subreddit,n_post,n_autori,quota_testuali,quota_link,quota_media,mediana_commenti,mediana_score,quota_rimossi,top_domini
+Italia,1337,910,0.55,0.17,0.23,10.0,2.0,0.07,"open.online (18), ansa.it (17), youtu.be (11), youtube.com (11), lifestyle.everyeye.it (9)"
+CasualIT,1202,753,1.0,0.0,0.0,17.0,2.0,0.17,
+TeenagersITA,1165,577,0.4,0.01,0.59,11.0,5.0,0.1,"youtube.com (7), forms.gle (2), open.spotify.com (2), youtu.be (2), ebay.io (1)"
+sfoghi,880,642,1.0,0.0,0.0,14.0,6.0,0.07,
+ItaliaPersonalFinance,772,638,0.85,0.02,0.13,11.0,1.0,0.03,"ilsole24ore.com (3), milanofinanza.it (2), youtu.be (2), ansa.it (1), rainews.it (1)"
+ItaliaCareerAdvice,575,496,0.85,0.01,0.06,6.0,2.0,0.07,"corriere.it (1), anthropic.com (1), ilsole24ore.com (1), support.google.com (1), science.org (1)"
+ItalyMotori,490,402,0.58,0.03,0.36,11.0,4.0,0.01,"play.google.com (2), ilpost.it (1), insideevs.it (1), facebook.com (1), autoscout24.it (1)"
+Universitaly,479,410,0.93,0.03,0.04,4.0,1.0,0.07,"forms.gle (3), politicamagazine.it (2), www2.almalaurea.it (1), gofile.io (1), youtube.com (1)"
+psicologia,351,300,1.0,0.0,0.0,5.0,2.0,0.01,
+oknotizie,348,33,0.0,0.99,0.0,6.0,12.0,0.02,"ansa.it (34), lantidiplomatico.it (23), open.online (22), rainews.it (17), ilfattoquotidiano.it (15)"
+domandaonesta,338,138,0.65,0.0,0.21,17.0,2.0,0.09,
+Avvocati,305,277,0.87,0.03,0.06,7.0,3.0,0.01,"ilprocessodigitale.it (5), github.com (1), lanuovasardegna.it (1), thebill.it (1), youtube.com (1)"
+italygames,295,218,0.6,0.06,0.34,10.0,4.0,0.04,"youtube.com (10), youtu.be (2), hdblog.it (1), docs.google.com (1), crosswordie.com (1)"
+VintedItalia,289,239,0.32,0.0,0.67,7.0,3.0,0.02,
+ItalyHardware,241,187,0.68,0.05,0.22,9.0,2.0,0.03,"videocardz.com (3), hdblog.it (1), hwupgrade.it (1), youtube.com (1), idealo.it (1)"
+italy,219,126,0.28,0.47,0.26,31.0,48.0,0.67,"ilpost.it (17), corriere.it (8), youtube.com (6), youtu.be (5), key4biz.it (5)"
+DarioMocciaTwitch,218,152,0.02,0.0,0.98,0.0,2.0,0.19,youtube.com (1)
+consigli,218,186,0.97,0.0,0.03,10.5,3.0,0.01,
+IPolterGuys,215,167,0.01,0.04,0.96,0.0,1.0,0.24,"vm.tiktok.com (3), youtu.be (3), instagram.com (1), gonfaloniere.itch.io (1), youtube.com (1)"
+sentimentalITA,212,162,0.82,0.0,0.01,11.0,2.0,0.16,t.me (1)
+commercialisti,201,181,0.83,0.0,0.07,3.0,2.0,0.04,pierodibello.com (1)
+scimmieinborsa,185,113,0.62,0.01,0.37,8.0,4.0,0.01,"finanza.economia-italia.com (1), youtube.com (1)"
+ItalyFitness,180,154,0.63,0.01,0.36,7.0,2.0,0.02,forms.gle (1)
+TuttoItalia,176,13,0.0,1.0,0.0,4.0,12.5,0.0,"ansa.it (19), open.online (16), rainews.it (13), tg24.sky.it (12), hwupgrade.it (11)"
+paperearmate,170,61,0.01,0.13,0.9,0.0,7.0,0.0,"instagram.com (9), youtube.com (6), vm.tiktok.com (4), youtu.be (2), facebook.com (1)"
+istrutturare,146,136,0.6,0.0,0.36,6.0,1.0,0.02,
+TankChat,146,33,0.37,0.0,0.61,2.0,3.0,0.03,
+torino,135,119,0.82,0.02,0.1,3.0,1.0,0.04,"lasicilia.it (1), ilpost.it (1), chat.whatsapp.com (1)"
+Gatti,127,103,0.21,0.02,0.75,4.0,35.0,0.0,"youtube.com (2), printsandtease.etsy.com (1)"
+Libri,125,110,0.81,0.02,0.17,6.0,4.0,0.12,"carmillaonline.com (1), vincentrusso.substack.com (1), indiscreto.org (1)"
+ViaggiITA,118,104,0.85,0.03,0.07,4.0,1.0,0.09,"garanteprivacy.it (2), play.google.com (1)"
+ItaliaStartups,106,87,0.73,0.04,0.09,7.0,1.0,0.05,"open.substack.com (2), digitaac.it (1), inorario.toreroclub.com (1)"
+PokemonFans_ITA,92,47,0.11,0.01,0.78,4.0,6.0,0.04,youtube.com (1)
+MinecraftItalia,91,70,0.47,0.0,0.47,4.0,6.0,0.02,
+giardinaggioITA,91,71,0.15,0.03,0.81,5.0,6.0,0.05,"postimg.cc (1), amzn.eu (1), urlgeni.us (1)"
+poesiaITA,90,43,0.62,0.01,0.37,0.0,2.0,0.0,instagram.com (1)
+LavoroSenzaFiltri,90,78,0.69,0.02,0.03,4.0,1.0,0.07,"docs.google.com (1), notiziariosicurezza.it (1)"
+IA_Italia,86,52,0.63,0.09,0.13,5.0,2.0,0.04,"lucamastro.it (2), github.com (1), minerva-ai.org (1), torino.corriere.it (1), huggingface.co (1)"
+roma,85,79,0.8,0.01,0.11,5.0,4.0,0.07,auto.everyeye.it (1)
+PA_Italia,84,68,0.8,0.14,0.02,5.0,4.0,0.0,"lentepubblica.it (7), amzn.eu (1), italiaoggi.it (1), pamagazine.it (1), brocardi.it (1)"
+AdolescentITA,82,42,0.41,0.06,0.56,6.0,6.0,0.0,"youtube.com (4), vm.tiktok.com (1)"
+LaStalla,79,59,0.03,0.0,0.96,1.0,15.0,0.2,
+Calcio,76,59,0.51,0.14,0.32,2.0,2.0,0.07,"youtu.be (3), youtube.com (3), ilnapolista.it (2), calciomercato.com (1), open.substack.com (1)"
+napoli,76,58,0.68,0.22,0.05,2.0,3.5,0.05,"napolijournal.com (9), ilmattino.it (2), politicamagazine.it (2), urbanpitch.com (1), areanapoli.it (1)"
+italymusica,74,66,0.61,0.19,0.22,1.0,1.0,0.03,"youtu.be (6), youtube.com (2), voca.ro (1), on.soundcloud.com (1), lifestyle.everyeye.it (1)"
+consulentidellavoro,71,68,0.55,0.01,0.14,1.0,1.0,0.15,notiziariosicurezza.it (1)
+TooBigToFailPodcast,68,47,0.94,0.03,0.04,9.0,7.5,0.04,"justetf.com (1), youtu.be (1)"
+cucina,67,52,0.34,0.04,0.63,10.0,15.0,0.06,"youtu.be (1), youtube.com (1), gioiaeilsuomondo.forumfree.it (1)"
+scrittura,66,49,0.76,0.05,0.21,2.0,1.0,0.16,"youtu.be (1), amzn.eu (1), lindiceonline.com (1)"
+QuandoCeraloStereo,66,41,0.09,0.02,0.89,13.0,38.0,0.0,it.pornhub.com (1)
+Lostmediaitalia,64,60,0.64,0.03,0.3,2.5,5.5,0.0,youtu.be (2)
+immobiliare,64,59,0.77,0.0,0.06,5.5,2.0,0.03,
+LinkedInCringeIT,62,44,0.32,0.02,0.61,17.5,27.0,0.05,instagram.com (1)
+SinistrITA,61,28,0.28,0.08,0.62,7.0,6.0,0.0,"youtu.be (2), alternativalibertaria.org (1), pungolorosso.com (1), youtube.com (1)"
+liberali,61,28,0.38,0.2,0.38,8.0,7.0,0.08,"ansa.it (3), ilfoglio.it (2), lorenzoruffino.it (1), confindustria.it (1), stream24.ilsole24ore.com (1)"
+cinemaIT,61,37,0.72,0.03,0.23,13.0,6.0,0.08,"letterboxd.com (1), sentieriselvaggi.it (1)"
+FashionRepsIT,61,52,0.56,0.0,0.39,2.0,1.0,0.06,
+ItalyInformatica,60,57,0.75,0.02,0.23,17.0,8.0,0.73,ilpost.it (1)
+camicibianchi,59,52,1.0,0.0,0.0,11.0,12.0,0.11,
+PensieriItaliani,57,30,0.44,0.07,0.35,6.0,3.0,0.11,"rainews.it (1), open.online (1), ilfattoquotidiano.it (1), fiumana.substack.com (1)"
+xxitaly,57,55,0.79,0.0,0.12,13.0,12.0,0.46,
+vibecodingitalia,56,12,0.18,0.04,0.62,0.0,2.0,0.0,"huggingface.co (1), models.sulat.com (1)"
+fumetti,54,33,0.22,0.11,0.65,1.0,6.0,0.0,"instagram.com (3), youtube.com (2), retrofuturista.com (1)"
+politicaITA,54,11,0.04,0.91,0.09,0.0,1.0,0.02,"kulturjam.it (3), diogenenotizie.com (2), ilmanifestoinrete.it (2), umanitanova.org (2), antropocene.org (2)"
+AnimeItaly,54,47,0.43,0.02,0.56,3.0,4.0,0.1,immascorner.wordpress.com (1)
+italiabad,53,21,0.08,0.02,0.91,10.0,21.0,0.07,youtube.com (1)
+YoutubeITA,53,35,0.34,0.09,0.62,2.0,1.0,0.02,"youtube.com (3), youtu.be (1), m.youtube.com (1)"
+techcompenso,52,35,0.52,0.02,0.31,23.5,5.5,0.0,ansa.it (1)
+Itanglese,51,46,0.14,0.0,0.82,10.0,29.0,0.04,
+TrekkingItaly,51,43,0.78,0.02,0.12,4.0,2.0,0.02,t.me (1)
+ICGA,50,15,0.32,0.54,0.4,6.5,2.0,0.0,"youtube.com (13), store.steampowered.com (6), skul-dev.itch.io (1), bungie.net (1), viterbonews24.it (1)"
+rapitaliano,49,36,0.45,0.12,0.43,5.0,3.0,0.08,"open.spotify.com (2), youtube.com (2), youtu.be (1), instagram.com (1)"
+aiuto,48,45,0.46,0.02,0.1,0.0,1.0,0.29,paypal.me (1)
+Orologi,47,47,0.49,0.04,0.47,7.0,3.0,0.0,"recensioniorologi.it (1), hamiltonwatch.com (1)"
+milano,46,44,0.83,0.09,0.11,6.0,5.0,0.62,"c.org (1), lifestyle.everyeye.it (1), inorario.toreroclub.com (1), youtu.be (1)"
+Gamethology,46,26,0.17,0.0,0.76,8.0,6.5,0.02,
+Formula1Italia,46,14,0.09,0.2,0.72,2.0,9.5,0.0,"formula1.it (7), thejudge13.com (1), youtu.be (1)"
+EducazioneSessualeITA,46,36,0.85,0.02,0.02,4.0,3.5,0.29,ilfattoquotidiano.it (1)
+italyLGBT,46,37,0.93,0.02,0.04,2.0,2.0,0.08,dpscomics.com (1)
+Psicologia_Italia,44,42,0.36,0.05,0.0,0.0,1.0,0.48,"instagram.com (1), doi.org (1)"
+caparezza,44,34,0.3,0.05,0.7,4.0,17.5,0.0,"youtu.be (1), youtube.com (1)"
+fantacalcio_IT,43,31,0.44,0.0,0.49,0.0,1.0,0.0,
+MotoItaly,43,42,0.77,0.02,0.12,9.0,3.0,0.1,motoabbigliamento.it (1)
+SudItalia,43,23,0.14,0.23,0.53,1.0,5.0,0.2,"bari.corriere.it (1), torino.repubblica.it (1), napolijournal.com (1), fondoambiente.it (1), lasicilia.it (1)"
+FilosofiaITA,42,30,0.81,0.02,0.07,5.0,1.5,0.12,instagram.com (1)
+ShitItalianSay,40,22,0.18,0.0,0.8,8.0,29.0,0.0,
+Cattolicesimo,40,21,0.5,0.35,0.08,1.0,3.5,0.07,"salesalato.com (5), infovaticana.com (2), communiobiblica.org (2), informazionecattolica.it (1), catholicus.eu (1)"
+ciclismourbano,39,12,0.72,0.13,0.13,8.0,4.0,0.07,"youtube.com (2), benzinazero.wordpress.com (1), discovercars.com (1), upaonbike.com (1)"
+FotografiaItalia,39,33,0.23,0.05,0.77,2.0,6.0,0.15,youtu.be (2)
+Yunisorrisiecanzoni,37,14,0.03,0.24,0.89,3.0,2.0,0.16,"youtube.com (5), adnkronos.com (1), nonsolo.tv (1), srganzo.com (1), youtu.be (1)"
+askTransgender_Italy,37,34,1.0,0.0,0.0,4.0,4.0,0.05,
+bologna,35,29,0.71,0.09,0.14,4.0,6.0,0.57,"bolognatoday.it (1), corrieredibologna.corriere.it (1), zero.eu (1)"
+Truffaonline,33,19,0.73,0.03,0.15,0.0,2.0,0.13,youtube.com (1)
+Relazioni,32,25,0.78,0.0,0.0,7.0,6.0,0.66,
+BattagliaPerItalia,30,14,0.5,0.0,0.5,9.0,3.0,0.0,
+TransItalia,30,30,0.83,0.0,0.1,5.0,9.0,0.19,
+Genova,30,27,0.87,0.07,0.07,7.0,2.5,0.14,"lavocedigenova.it (1), real.it (1)"
+Elettricisti,30,29,0.6,0.0,0.23,8.0,2.0,0.03,
+veganita,27,24,0.67,0.04,0.26,11.0,10.0,0.13,gioiaeilsuomondo.forumfree.it (1)
+titoliorrendi,27,25,0.0,0.07,0.93,5.0,64.0,0.0,"youtube.com (1), rainews.it (1)"
+firenze,25,25,0.84,0.04,0.08,3.0,1.0,0.07,open.spotify.com (1)
+subito_it,25,23,0.32,0.08,0.4,5.0,1.0,0.11,"github.com (1), wise.com (1)"
+storia,24,20,0.21,0.25,0.58,1.0,1.5,0.11,"youtube.com (3), youtu.be (2), doi.org (1)"
+GameDevelopersItaly,24,23,0.38,0.12,0.42,3.0,6.0,0.29,"docs.google.com (1), youtube.com (1), store.steampowered.com (1)"
+UrbexItalia,23,19,0.48,0.04,0.48,1.0,5.0,0.04,youtube.com (1)
+dogs_ita,23,21,0.39,0.0,0.61,8.0,32.0,0.21,
+bandiere,23,13,0.09,0.0,0.91,5.0,22.0,0.0,
+infermieri,23,22,0.83,0.04,0.0,3.0,3.0,0.08,infermieriattivi.it (1)
+TradeRepublic_IT,23,19,0.65,0.0,0.13,3.0,4.0,0.26,
+giochidatavolo,22,20,0.55,0.05,0.14,0.0,1.0,0.0,rotteecannoni.it (1)
+JoJoITA,21,15,0.1,0.0,0.86,4.0,42.0,0.0,
+bollette,21,21,0.71,0.0,0.24,4.0,1.0,0.05,
+Sardegna,21,20,0.52,0.24,0.24,2.0,2.0,0.0,"lifestyle.everyeye.it (1), olbia.it (1), corriere.it (1), youtube.com (1), youtu.be (1)"
+ChopSubmissions,20,15,0.0,0.0,1.0,1.0,57.5,0.0,
+TheLoneGamer,20,11,0.1,0.05,0.85,2.5,102.5,0.0,open.spotify.com (1)
+Stremio_Italia,20,17,0.8,0.0,0.2,6.5,2.5,0.13,
+Ticino,20,15,0.65,0.05,0.3,5.5,6.0,0.23,swissinfo.ch (1)
+locandadeldragorosso,20,17,0.75,0.1,0.1,7.0,4.0,0.0,spreaker.com (2)
