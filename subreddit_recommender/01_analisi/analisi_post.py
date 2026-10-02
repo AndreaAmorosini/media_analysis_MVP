@@ -56,13 +56,17 @@ def main() -> None:
     print(tenuti["tipo"].value_counts().to_string())
     df.to_parquet(OUTPUT / "post_puliti.parquet")
 
-    cat = catalogo(tenuti)
+    cat = catalogo(df)
     cat.to_csv(CATALOGO, index=False)
     print(f"\ncatalogo: {len(cat)} subreddit in {CATALOGO.relative_to(ROOT)}")
 
 
-def catalogo(tenuti: pd.DataFrame) -> pd.DataFrame:
-    """Una riga per subreddit con i post tenuti: è l'elenco dei sub usati nella Fase 4."""
+def catalogo(df: pd.DataFrame) -> pd.DataFrame:
+    """Una riga per subreddit con post tenuti: è l'elenco dei sub usati nella Fase 4.
+
+    `df`: tutti i post con `motivo_scarto` (serve per la quota di post rimossi dai moderatori).
+    """
+    tenuti = df[df["motivo_scarto"].isna()]
     media = tenuti["tipo"].isin(["immagine", "galleria", "video"])
     esterni = tenuti[tenuti["dominio"] != ""]
     top_domini = esterni.groupby("subreddit")["dominio"].agg(
@@ -77,6 +81,10 @@ def catalogo(tenuti: pd.DataFrame) -> pd.DataFrame:
         mediana_commenti=("num_comments", "median"),
         mediana_score=("score", "median"),
     )
+    # rischio che un post venga tolto: rimossi dai moderatori / (tenuti + rimossi dai moderatori)
+    rimossi = df[df["motivo_scarto"] == "rimosso_mod"]["subreddit"].value_counts()
+    rimossi = rimossi.reindex(cat.index, fill_value=0)
+    cat["quota_rimossi"] = rimossi / (rimossi + cat["n_post"])
     cat["top_domini"] = top_domini.reindex(cat.index).fillna("")
     return cat.round(2).sort_values("n_post", ascending=False).reset_index()
 
