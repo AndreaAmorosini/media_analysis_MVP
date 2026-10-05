@@ -1,5 +1,6 @@
 from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
 from press_reputation.features import RegionFeatureExtractor, RegionFeatures
+from press_reputation.features.region_features import entity_lookup_metadata
 from press_reputation.models.page import PageRecord, Region, RegionType
 
 PROTECTED_REGION_TYPES = {
@@ -15,22 +16,30 @@ class ArticleSemanticClassifier:
     
     def enrich(self, page: PageRecord) -> PageRecord:
         self.classify_individual_regions(page)
-        self.classify_contextual_regions(page)
-        self.promote_body_near_title_to_subtitle(page)
+        return page
+    
+    def enrich_after_titles(self, page: PageRecord) -> PageRecord:
+        # self.classify_contextual_regions(page)
+        # self.promote_body_near_title_to_subtitle(page)
         self.classify_implicit_authors(page)
-        self.classify_article_section_headers(page)
+        # self.classify_article_section_headers(page)
         return page
     
     def classify_individual_regions(self, page: PageRecord) -> None:
         for region in page.regions:
             features = self.feature_extractor.extract(region, page)
-
-            if features.municipalities:
-                region.metadata["municipalities"] = features.municipalities
+            
+            if (features.entity_kind == "location" and not features.entity_ambiguous):
+                lookup_data = entity_lookup_metadata(features)
+                if lookup_data is not None:
+                    region.metadata.setdefault("entity_lookup", lookup_data)
                 
             self.enrich_region_metadata(region, features)
 
             region.type = self.classify(region, page, features)
+            
+            if (region.type == RegionType.LOCATION and features.municipalities):
+                region.metadata["municipalities"] = (features.municipalities)
             
     def classify_article_section_headers(self, page: PageRecord) -> None:
         body_seen = False
@@ -47,34 +56,7 @@ class ArticleSemanticClassifier:
             if (body_seen and region.raw_label == "section_header" and region.type in {RegionType.UNKNOWN, RegionType.ARTICLE_TITLE}
                 and region.text and not region.exclude_from_article_text):
                 region.type = RegionType.ARTICLE_SECTION_HEADER
-                
-    def promote_body_near_title_to_subtitle(self, page: PageRecord) -> None:
-        titles = [region for region in page.regions if (region.type == RegionType.ARTICLE_TITLE and region.bbox and len(region.bbox) == 4 and
-                                                            not region.metadata.get("in_header_metadata_zone") and
-                                                            not region.exclude_from_article_text)]
-
-        if not titles:
-            return
-
-        title = max(titles, key=lambda region: self.title_score(region, page))
-
-        candidates = [region for region in page.regions if (region.type == RegionType.ARTICLE_BODY and
-                        region.bbox and len(region.bbox) == 4 and not region.exclude_from_article_text and
-                                                            not region.metadata.get("in_header_metadata_zone"))]
-
-        for region in candidates:
-            features = self.feature_extractor.extract(region, page)
-
-            if not self.like_prominent_subtitle_region(region,features):
-                continue
-
-            if not self.is_near_title(region, title):
-                continue
-
-            region.type = RegionType.ARTICLE_SUBTITLE
-            region.metadata["promoted_from_body"] = True
-            return
-        
+    
     def classify_implicit_authors(self, page: PageRecord) -> None:
         anchor_regions = [region for region in page.regions if (region.type in {RegionType.ARTICLE_TITLE, RegionType.ARTICLE_SUBTITLE} and 
                                                                 region.bbox and
@@ -131,24 +113,6 @@ class ArticleSemanticClassifier:
         if region.type == RegionType.IMAGE:
             return RegionType.IMAGE
 
-        # if features.is_press_review_provider:
-        #     return RegionType.PRESS_REVIEW_PROVIDER
-
-        # if features.is_known_newspaper:
-        #     return RegionType.SOURCE_NAME
-
-        # if self.like_composite_clipping_metadata(features):
-        #     return RegionType.HEADER_METADATA
-
-        # if "da pag" in features.raw_text_lower:
-        #     return RegionType.ORIGINAL_PAGE
-
-        # if features.has_foglio:
-        #     return RegionType.CLIPPING_SHEET
-
-        # if self.like_publication_date(features):
-        #     return RegionType.PUBLICATION_DATE
-
         if self.like_location(features):
             return RegionType.LOCATION
 
@@ -160,9 +124,6 @@ class ArticleSemanticClassifier:
 
         if self.like_author(features):
             return RegionType.AUTHOR
-
-        if self.like_article_title(features):
-            return RegionType.ARTICLE_TITLE
 
         if self.like_article_body(features):
             return RegionType.ARTICLE_BODY
@@ -255,147 +216,6 @@ class ArticleSemanticClassifier:
 
         return date(year, month, day).isoformat()
     
-    def enforce_single_title_and_subtitle(self, page: PageRecord) -> None:
-        if self.is_continuation_page(page):
-            for region in page.regions:
-                if region.type == RegionType.ARTICLE_SUBTITLE or region.type == RegionType.ARTICLE_TITLE:
-                    region.type = RegionType.UNKNOWN
-            return
-
-        
-        title_candidates = [
-            region for region in page.regions if region.type == RegionType.ARTICLE_TITLE and region.bbox and len(region.bbox) == 4
-        ]
-        
-        if not title_candidates:
-            return
-        
-        best_title = max(title_candidates, key=lambda region: self.title_score(region, page))
-        
-        for region in title_candidates:
-            if region is not best_title:
-                region.type = RegionType.UNKNOWN
-                
-        subtitle_candidates = self.find_subtitle_candidates(page, best_title)
-        
-        if not subtitle_candidates:
-            return
-        
-        best_subtitle = max(subtitle_candidates, key=lambda region: self.subtitle_score(region, best_title))
-        
-        for region in subtitle_candidates:
-            if region is best_subtitle:
-                region.type = RegionType.ARTICLE_SUBTITLE
-            elif region.type == RegionType.ARTICLE_SUBTITLE:
-                region.type = RegionType.UNKNOWN
-                
-                
-    def title_score(self, region: Region, page: PageRecord) -> float:
-        features = self.feature_extractor.extract(region, page)
-
-        score = 0.0
-
-        if features.raw_label == "section_header":
-            score += 2.0
-
-        if 3 <= features.word_count <= 18:
-            score += 2.0
-
-        if features.bbox_width:
-            score += min(features.bbox_width / 300, 2.0)
-
-        if features.bbox_height:
-            score += min(features.bbox_height / 40, 1.5)
-
-        if features.is_known_newspaper:
-            score -= 5.0
-
-        if features.municipality_count > 0 and features.word_count <= 5:
-            score -= 4.0
-
-        if features.has_foglio or features.has_surface:
-            score -= 5.0
-
-        return score
-    
-    def find_subtitle_candidates(self, page: PageRecord, title: Region) -> list[Region]:
-        candidates = []
-
-        if not title.bbox:
-            return candidates
-
-        title_x0, title_y0, title_x1, title_y1 = title.bbox
-
-        for region in page.regions:
-            if region is title:
-                continue
-
-            if region.type not in {
-                RegionType.UNKNOWN,
-                RegionType.ARTICLE_BODY,
-                RegionType.ARTICLE_SUBTITLE,
-            }:
-                continue
-
-            if not region.bbox or len(region.bbox) != 4:
-                continue
-
-            features = self.feature_extractor.extract(region, page)
-            
-            if (features.bbox_height is not None and features.bbox_height > 80) or features.word_count > 35:
-                continue
-            
-            if not self.like_subtitle_candidate(features):
-                continue
-
-            x0, y0, x1, y1 = region.bbox
-
-            horizontal_overlap = self.overlap_ratio(title_x0, title_x1, x0, x1)
-
-            if horizontal_overlap < 0.25:
-                continue
-
-            gap_above = title_y0 - y1
-            gap_below = y0 - title_y1
-
-            is_near_above = 0 <= gap_above <= 50
-            is_near_below = 0 <= gap_below <= 60
-
-            if is_near_above or is_near_below:
-                candidates.append(region)
-
-        return candidates
-    
-    def subtitle_score(self, region: Region, title: Region) -> float:
-        if not region.bbox or not title.bbox:
-            return 0.0
-
-        x0, y0, x1, y1 = region.bbox
-        tx0, ty0, tx1, ty1 = title.bbox
-
-        score = 0.0
-
-        overlap = self.overlap_ratio(tx0, tx1, x0, x1)
-        score += overlap * 2.0
-
-        gap_above = ty0 - y1
-        gap_below = y0 - ty1
-
-        if 0 <= gap_above <= 80:
-            score += 1.5
-
-        if 0 <= gap_below <= 100:
-            score += 1.2
-
-        width = x1 - x0
-        title_width = tx1 - tx0
-
-        if title_width > 0:
-            width_ratio = min(width / title_width, 1.5)
-            score += width_ratio
-
-        return score
-    
     @staticmethod
     def overlap_ratio(a0: float, a1: float, b0: float, b1: float) -> float:
         overlap = max(0.0, min(a1, b1) - max(a0, b0))
@@ -403,40 +223,6 @@ class ArticleSemanticClassifier:
         
         return overlap / base
     
-    @staticmethod
-    def like_subtitle_candidate(features: RegionFeatures) -> bool:
-        if features.word_count < 6:
-            return False
-
-        if features.word_count > 35:
-            return False
-
-        if features.text_length > 260:
-            return False
-
-        if features.raw_label not in {"text", "section_header"}:
-            return False
-
-        if features.has_url:
-            return False
-
-        if features.municipality_count > 0 and features.word_count <= 5:
-            return False
-
-        if features.has_foglio or features.has_surface:
-            return False
-
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-
-        if features.has_newsletter or features.has_related_marker:
-            return False
-
-        if features.uppercase_ratio > 0.85:
-            return False
-
-        return True
-        
     @staticmethod
     def like_advertisement(features: RegionFeatures) -> bool:
         if features.has_ad_marker:
@@ -470,7 +256,7 @@ class ArticleSemanticClassifier:
         if features.has_url:
             return False
 
-        if features.municipality_count > 0:
+        if (features.entity_kind == "location" and not features.entity_ambiguous):
             return False
 
         if features.bbox_width is not None and features.bbox_height is not None:
@@ -514,7 +300,7 @@ class ArticleSemanticClassifier:
     
     @staticmethod
     def like_location(features: RegionFeatures) -> bool:
-        if features.municipality_count == 0:
+        if (features.entity_kind != "location" or features.entity_ambiguous):
             return False
         
         if "," in features.raw_text_lower:
@@ -527,9 +313,6 @@ class ArticleSemanticClassifier:
             return False
 
         if features.text_length > 100:
-            return False
-
-        if features.is_known_newspaper or features.is_press_review_provider:
             return False
 
         if features.has_url:
@@ -597,30 +380,30 @@ class ArticleSemanticClassifier:
             or features.has_share_marker
         )
         
-    @staticmethod
-    def like_article_title(features: RegionFeatures) -> bool:
-        if features.raw_label != "section_header":
-            return False
+    # @staticmethod
+    # def like_article_title(features: RegionFeatures) -> bool:
+    #     if features.raw_label != "section_header":
+    #         return False
 
-        if features.is_known_newspaper or features.is_press_review_provider:
-            return False
+    #     if features.is_known_newspaper or features.is_press_review_provider:
+    #         return False
 
-        if features.word_count < 3 or features.word_count > 18:
-            return False
+    #     if features.word_count < 3 or features.word_count > 18:
+    #         return False
 
-        if features.has_url:
-            return False
+    #     if features.has_url:
+    #         return False
 
-        if features.has_foglio or features.has_surface or features.has_tiratura:
-            return False
+    #     if features.has_foglio or features.has_surface or features.has_tiratura:
+    #         return False
 
-        if features.has_newsletter or features.has_related_marker:
-            return False
+    #     if features.has_newsletter or features.has_related_marker:
+    #         return False
 
-        if features.bbox_width is not None and features.bbox_width < 120:
-            return False
+    #     if features.bbox_width is not None and features.bbox_width < 120:
+    #         return False
 
-        return True
+    #     return True
 
     @staticmethod
     def like_article_body(features: RegionFeatures) -> bool:
@@ -680,104 +463,6 @@ class ArticleSemanticClassifier:
             return True
 
         return False
-
-    def classify_contextual_regions(self, page: PageRecord) -> None:
-        regions = [region for region in page.regions if (region.bbox and len(region.bbox) == 4 and
-                                                            not region.metadata.get("in_header_metadata_zone") and
-                                                            not region.exclude_from_article_text)]
-
-        regions.sort(key=lambda item: (item.bbox[1], item.bbox[0]))
-
-        for index, region in enumerate(regions):
-            if region.type not in {
-                RegionType.UNKNOWN,
-                RegionType.ARTICLE_BODY,
-            }:
-                continue
-
-            previous_title = self.find_previous_title(regions, index)
-
-            if previous_title is None:
-                continue
-
-            vertical_gap = region.bbox[1] - previous_title.bbox[3]
-
-            if vertical_gap < 0:
-                continue
-
-            features = self.feature_extractor.extract(region, page)
-
-            if self.like_article_subtitle_after_title(features, vertical_gap):
-                region.type = RegionType.ARTICLE_SUBTITLE
-                
-    @staticmethod
-    def like_article_subtitle_after_title(features: RegionFeatures, vertical_gap: float) -> bool:
-        if vertical_gap > 100:
-            return False
-
-        if features.word_count < 5:
-            return False
-
-        if features.word_count > 45:
-            return False
-
-        if features.text_length > 320:
-            return False
-
-        if features.has_url:
-            return False
-
-        if features.has_foglio or features.has_surface:
-            return False
-
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-
-        if features.has_newsletter or features.has_related_marker:
-            return False
-
-        if features.uppercase_ratio > 0.85:
-            return False
-
-        return True
-    
-    @staticmethod
-    def like_prominent_subtitle_region(region: Region, features: RegionFeatures) -> bool:
-        if features.word_count < 8:
-            return False
-
-        if features.word_count > 75:
-            return False
-
-        if features.has_url:
-            return False
-
-        if features.has_foglio or features.has_surface:
-            return False
-
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-
-        if features.has_watermark_marker or features.has_rights_notice_marker:
-            return False
-
-        bold_ratio = region.style.get("bold_ratio")
-        max_font_size = region.style.get("max_font_size")
-        median_font_size = region.style.get("median_font_size")
-
-        if bold_ratio is not None and bold_ratio >= 0.55:
-            return True
-
-        if max_font_size is not None and max_font_size >= 14:
-            return True
-
-        if median_font_size is not None and median_font_size >= 12:
-            return True
-
-        if features.bbox_height is not None and features.bbox_height >= 45:
-            return True
-
-        return False
     
     def is_near_title(self, region: Region, title: Region) -> bool:
         if not region.bbox or not title.bbox:
@@ -801,10 +486,10 @@ class ArticleSemanticClassifier:
         if features.word_count < 2 or features.word_count > 5:
             return False
 
-        if features.municipality_count > 0:
+        if features.entity_kind in {"source", "provider"}:
             return False
-
-        if features.is_known_newspaper or features.is_press_review_provider:
+        
+        if (features.entity_kind == "location" and not features.entity_ambiguous):
             return False
 
         if features.has_url:

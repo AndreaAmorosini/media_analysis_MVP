@@ -10,7 +10,7 @@ class TechnicalRegionClassifier:
         thumbnail_regions: list[Region] = []
 
         for region in page.regions:
-            features = self.feature_extractor.extract(region, page)
+            features = self.feature_extractor.extract(region, page, include_entity=False)
 
             if region.type == RegionType.CAPTION:
                 continue

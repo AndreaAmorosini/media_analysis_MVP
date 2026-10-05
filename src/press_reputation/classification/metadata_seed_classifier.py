@@ -1,4 +1,5 @@
 from press_reputation.features import RegionFeatureExtractor
+from press_reputation.features.region_features import entity_lookup_metadata
 from press_reputation.models.page import PageRecord, RegionType
 
 class MetadataSeedClassifier:
@@ -34,18 +35,31 @@ class MetadataSeedClassifier:
                 continue
             
             features = self.feature_extractor.extract(region, page)
+            if features.entity_kind is not None:
+                lookup_data = entity_lookup_metadata(features)
+                # region.metadata["entity_lookup"] = {
+                #     "kind": features.entity_kind,
+                #     "method": features.entity_method,
+                #     "canonical_name": features.entity_canonical_name,
+                #     "matched_name": features.entity_matched_name,
+                #     "similarity": features.entity_similarity,
+                #     "match_coverage": features.entity_match_coverage,
+                #     "priority": features.entity_priority,
+                #     "ambiguous": features.entity_ambiguous,
+                # }
+                region.metadata["entity_lookup"] = lookup_data
             text = features.raw_text_lower
             
             detected_type = None
             reason = None
             
             #Provider/testata prima di location o di eventuali euristiche successive
-            if features.is_press_review_provider:
-                detected_type = RegionType.PRESS_REVIEW_PROVIDER
-                reason = "heuristic_press_review_provider"
-            elif features.is_known_newspaper:
+            if (features.entity_kind == "source" and not features.entity_ambiguous):
                 detected_type = RegionType.SOURCE_NAME
-                reason = "known_newspaper"
+                reason = (f"entity_{features.entity_method}_source")
+            elif (features.entity_kind == "provider" and not features.entity_ambiguous):
+                detected_type = RegionType.PRESS_REVIEW_PROVIDER
+                reason = (f"entity_{features.entity_method}_provider")
             elif self._composite(features):
                 detected_type = RegionType.HEADER_METADATA
                 reason = "composite_clipping_metadata"

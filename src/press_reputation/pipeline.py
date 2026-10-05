@@ -13,6 +13,7 @@ from press_reputation.classification.header_metadata_zone import (
 )
 from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
 from press_reputation.classification.region_classifier import ArticleSemanticClassifier
+from press_reputation.classification.title_resolver import TitleResolver
 from press_reputation.metadata import MetadataExtractor
 from press_reputation.models.page import PageRecord
 from press_reputation.reconstruction import BodyContinuationResolver
@@ -24,6 +25,8 @@ from press_reputation.reconstruction.article_flow import ArticleFlowResolver
 from press_reputation.reconstruction.flow_models import FlowLink
 from press_reputation.review_index.matcher import ReviewIndexMatcher
 from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
+from press_reputation.classification.subtitle_resolver import SubtitleResolver
+from press_reputation.classification.section_header_resolver import SectionHeaderResolver
 
 
 class PageProcessingPipeline:
@@ -37,7 +40,9 @@ class PageProcessingPipeline:
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
         
-        
+        self.section_header_resolver = SectionHeaderResolver()
+        self.subtitle_resolver = SubtitleResolver()
+        self.title_resolver = TitleResolver()
         self.review_index_matcher = ReviewIndexMatcher()
         self.review_index_matches: list[ReviewIndexMatch] = []
         self.style_enricher = PdfStyleEnricher()
@@ -72,9 +77,16 @@ class PageProcessingPipeline:
             self.metadata_seed_classifier.enrich(page)
             self.header_zone_detector.enrich(page)
             self.article_semantic_classifier.enrich(page)
-
             self.metadata_extractor.enrich(page)
+            
+        self.title_resolver.resolve(pages, entries=review_index_entries)
+        for page in pages:
+            self.subtitle_resolver.enrich(page)
+        
+        for page in pages:
+            self.article_semantic_classifier.enrich_after_titles(page)
             page.page_type = self.page_classifier.classify(page)
+            
 
         if review_index_entries:
             self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
@@ -82,6 +94,9 @@ class PageProcessingPipeline:
         # Passaggio documentale: selezione automatica contenuto web.
         self.web_content_resolver.enrich_document(pages)
         self.web_article_continuation_resolver.enrich_document(pages)
+        
+        self.title_resolver.consolidate_candidates(pages)
+        
         self.flow_links = self.article_flow_resolver.resolve(pages)
 
         # Secondo passaggio: recupero e raggruppamento.
@@ -89,6 +104,7 @@ class PageProcessingPipeline:
             if self.enable_body_continuation:
                 self.body_resolver.enrich(page)
 
+            self.section_header_resolver.enrich(page)
             self.body_grouping_resolver.enrich(page)
 
         return pages

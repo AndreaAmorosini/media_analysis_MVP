@@ -1,7 +1,7 @@
 import re
 from pydantic import BaseModel
 from press_reputation.models.page import PageRecord, Region
-from press_reputation.lookup import (find_municipalities, get_newspaper, get_press_review_provider)
+from press_reputation.lookup import resolve_entity
 
 class RegionFeatures(BaseModel):
     raw_text_lower: str = ""
@@ -31,18 +31,17 @@ class RegionFeatures(BaseModel):
     has_related_marker: bool = False
     has_navigation_marker: bool = False
     has_cookie_marker: bool = False
-    
-    is_known_newspaper: bool = False
-    newspaper_name: str | None = None
-    newspaper_type: str | None = None
-    newspaper_category: str | None = None
-    
-    is_press_review_provider: bool = False
-    press_review_provider_name: str | None = None
-    
-    municipality_count: int = 0
+        
     municipalities: list[dict] = []
-    primary_municipality_name: str | None = None
+    
+    entity_kind: str | None = None
+    entity_method: str | None = None
+    entity_canonical_name: str | None = None
+    entity_matched_name: str | None = None
+    entity_similarity: float | None = None
+    entity_match_coverage: float | None = None
+    entity_priority: int | None = None
+    entity_ambiguous: bool = False
     
     like_section_label: bool = False
     like_index_entry: bool = False
@@ -69,18 +68,47 @@ class RegionFeatures(BaseModel):
     is_right_area: bool = False
     is_center_area: bool = False
     
+    font_names: list[str] = []
+    dominant_font: str | None = None
+    median_font_size: float | None = None
+    max_font_size: float | None = None
+    bold_ratio: float | None = None
+    italic_ratio: float | None = None
+    dominant_color: tuple[float, ...] | None = None
+    median_opacity: float | None = None
+
+    style_source: str | None = None
+    style_match_count: int = 0
+    bold_evidence_fraction: float = 0.0
+    italic_evidence_fraction: float = 0.0
+    
     raw_label: str | None = None
     
+def entity_lookup_metadata(features: RegionFeatures) -> dict | None:
+    if features.entity_kind is None:
+        return None
+    
+    return {
+        "kind": features.entity_kind,
+        "method": features.entity_method,
+        "canonical_name": features.entity_canonical_name,
+        "matched_name": features.entity_matched_name,
+        "similarity": features.entity_similarity,
+        "match_coverage": features.entity_match_coverage,
+        "priority": features.entity_priority,
+        "ambiguous": features.entity_ambiguous,
+    }
 class RegionFeatureExtractor:
-    def extract(self, region: Region, page: PageRecord) -> RegionFeatures:
+    def extract(self, region: Region, page: PageRecord, *, include_entity: bool = True) -> RegionFeatures:
         text = region.text or ""
         lower = text.lower()
         normalized_line = lower.strip()
         words = re.findall(r"\w+", text)
         
-        newspaper = get_newspaper(text)
-        provider = get_press_review_provider(text)
-        municipalities = find_municipalities(text) if len(text) <= 300 else []
+        entity = (resolve_entity(text) if include_entity else None)
+        accepted = (entity if entity is not None and not entity.ambiguous else None)
+        
+        municipalities = (accepted.record["municipalities"] if accepted is not None and accepted.kind == "location" else [])
 
         features = RegionFeatures(
             raw_text_lower = lower,
@@ -145,18 +173,30 @@ class RegionFeatureExtractor:
                 or "cliente che lo riceve" in lower
             ),
             has_cookie_marker="cookie" in lower or "privacy policy" in lower,
-            is_known_newspaper=newspaper is not None,
-            newspaper_name=newspaper.get("nome") if newspaper else None,
-            newspaper_type=newspaper.get("tipo") if newspaper else None,
-            newspaper_category=newspaper.get("categoria") if newspaper else None,
-            is_press_review_provider=provider is not None,
-            press_review_provider_name=provider.get("nome") if provider else None,
-            municipality_count=len(municipalities),
+            entity_kind=entity.kind if entity else None,
+            entity_method=entity.method if entity else None,
+            entity_canonical_name=(entity.canonical_name if entity else None),
+            entity_matched_name=(entity.matched_name if entity else None),
+            entity_similarity=(entity.similarity if entity else None),
+            entity_match_coverage=(entity.match_coverage if entity else None),
+            entity_priority=(entity.priority if entity else None),
+            entity_ambiguous=(entity.ambiguous if entity else False),
             municipalities=municipalities,
-            primary_municipality_name=municipalities[0]["comune"] if municipalities else None,
             like_section_label=normalized_line in {"stampa locale", "stampa nazionale", "web", "radio", "tv", "televisione"},
             like_index_entry=self.looks_like_index_entry(text),
             raw_label=region.raw_label,
+            font_names = list(region.style.get("font_names") or []),
+            dominant_font=region.style.get("dominant_font"),
+            median_font_size = region.style.get("median_font_size"),
+            max_font_size = region.style.get("max_font_size"),
+            bold_ratio = region.style.get("bold_ratio"),
+            italic_ratio = region.style.get("italic_ratio"),
+            dominant_color = (tuple(region.style["dominant_color"]) if region.style.get("dominant_color") is not None else None),
+            median_opacity=region.style.get("median_opacity"),
+            style_source=region.style.get("style_source"),
+            style_match_count=region.style.get("style_match_count", 0),
+            bold_evidence_fraction=region.style.get("bold_evidence_fraction", 0.0),
+            italic_evidence_fraction=region.style.get("italic_evidence_fraction", 0.0)
         )
 
         self.add_bbox_features(features, region, page)
