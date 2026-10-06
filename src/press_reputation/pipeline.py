@@ -1,4 +1,5 @@
 from pathlib import Path
+from collections import Counter
 
 from press_reputation.classification import (
     PageClassifier,
@@ -27,6 +28,7 @@ from press_reputation.review_index.matcher import ReviewIndexMatcher
 from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
 from press_reputation.classification.subtitle_resolver import SubtitleResolver
 from press_reputation.classification.section_header_resolver import SectionHeaderResolver
+from press_reputation.classification.author_resolver import AuthorResolver
 
 
 class PageProcessingPipeline:
@@ -40,6 +42,7 @@ class PageProcessingPipeline:
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
         
+        self.author_resolver = AuthorResolver()
         self.section_header_resolver = SectionHeaderResolver()
         self.subtitle_resolver = SubtitleResolver()
         self.title_resolver = TitleResolver()
@@ -71,9 +74,10 @@ class PageProcessingPipeline:
         if self.enable_boilerplate_detection:
             self.boilerplate_detector.enrich(pages)
 
+        document_page_counts = Counter(page.document_id for page in pages)
         # Primo passaggio: classificazioni locali e metadata.
         for page in pages:
-            self.technical_classifier.enrich(page)
+            self.technical_classifier.enrich(page, document_page_count=document_page_counts[page.document_id])
             self.metadata_seed_classifier.enrich(page)
             self.header_zone_detector.enrich(page)
             self.article_semantic_classifier.enrich(page)
@@ -82,14 +86,17 @@ class PageProcessingPipeline:
         self.title_resolver.resolve(pages, entries=review_index_entries)
         for page in pages:
             self.subtitle_resolver.enrich(page)
+            
+        if review_index_entries:
+            self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
+            
+        entries_by_id = {entry.id: entry for entry in review_index_entries or []}
         
         for page in pages:
-            self.article_semantic_classifier.enrich_after_titles(page)
+            self.author_resolver.enrich(page, self.review_index_matches, entries_by_id)
             page.page_type = self.page_classifier.classify(page)
             
 
-        if review_index_entries:
-            self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
 
         # Passaggio documentale: selezione automatica contenuto web.
         self.web_content_resolver.enrich_document(pages)

@@ -17,14 +17,7 @@ class ArticleSemanticClassifier:
     def enrich(self, page: PageRecord) -> PageRecord:
         self.classify_individual_regions(page)
         return page
-    
-    def enrich_after_titles(self, page: PageRecord) -> PageRecord:
-        # self.classify_contextual_regions(page)
-        # self.promote_body_near_title_to_subtitle(page)
-        self.classify_implicit_authors(page)
-        # self.classify_article_section_headers(page)
-        return page
-    
+        
     def classify_individual_regions(self, page: PageRecord) -> None:
         for region in page.regions:
             features = self.feature_extractor.extract(region, page)
@@ -57,31 +50,6 @@ class ArticleSemanticClassifier:
                 and region.text and not region.exclude_from_article_text):
                 region.type = RegionType.ARTICLE_SECTION_HEADER
     
-    def classify_implicit_authors(self, page: PageRecord) -> None:
-        anchor_regions = [region for region in page.regions if (region.type in {RegionType.ARTICLE_TITLE, RegionType.ARTICLE_SUBTITLE} and 
-                                                                region.bbox and
-                                                                not region.metadata.get("in_header_metadata_zone") and
-                                                                not region.exclude_from_article_text)]
-
-        if not anchor_regions:
-            return
-
-        candidates = [region for region in page.regions if (region.type == RegionType.UNKNOWN and region.bbox and
-                                                            region.text and not region.exclude_from_article_text and
-                                                            not region.metadata.get("in_header_metadata_zone"))]
-
-        for region in candidates:
-            features = self.feature_extractor.extract(region, page)
-
-            if not self.like_implicit_author(features):
-                continue
-
-            if not self.is_near_any_anchor(region, anchor_regions):
-                continue
-
-            region.type = RegionType.AUTHOR
-            region.metadata["author_detection"] = "implicit_contextual"
-    
     def classify(self, region: Region, page: PageRecord, features: RegionFeatures) -> RegionType:
         #L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
         if (region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or 
@@ -98,6 +66,10 @@ class ArticleSemanticClassifier:
             RegionType.RIGHTS_NOTICE,
             RegionType.WATERMARK,
             RegionType.ADVERTISEMENT,
+            RegionType.PULL_QUOTE,
+            RegionType.TABLE,
+            RegionType.INFOGRAPHIC,
+            RegionType.ARTICLE_SECTION_HEADER
         }:
             return region.type
         
@@ -121,9 +93,6 @@ class ArticleSemanticClassifier:
 
         if self.like_related_content(features):
             return RegionType.RELATED_CONTENT
-
-        if self.like_author(features):
-            return RegionType.AUTHOR
 
         if self.like_article_body(features):
             return RegionType.ARTICLE_BODY
@@ -232,49 +201,7 @@ class ArticleSemanticClassifier:
             return True
         
         return False
-    
-    @staticmethod
-    def like_author(features: RegionFeatures) -> bool:
-        if features.has_watermark_marker:
-            return False
-
-        if features.has_rights_notice_marker:
-            return False
-
-        if "data stampa" in features.raw_text_lower:
-            return False
-
-        if features.has_foglio or features.has_surface:
-            return False
-
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-
-        if features.has_dir_resp or features.has_quotidiano:
-            return False
-
-        if features.has_url:
-            return False
-
-        if (features.entity_kind == "location" and not features.entity_ambiguous):
-            return False
-
-        if features.bbox_width is not None and features.bbox_height is not None:
-            if features.bbox_width < 25 and features.bbox_height > 120:
-                return False
-
-        if features.uppercase_ratio > 0.85:
-            return False
-
-        # Per ora autore solo con marker esplicito.
-        if not features.has_author_marker:
-            return False
-
-        if features.word_count < 2 or features.word_count > 8:
-            return False
-
-        return True
-    
+        
     @staticmethod
     def like_publication_date(features: RegionFeatures) -> bool:
         if not features.has_date:
@@ -380,31 +307,6 @@ class ArticleSemanticClassifier:
             or features.has_share_marker
         )
         
-    # @staticmethod
-    # def like_article_title(features: RegionFeatures) -> bool:
-    #     if features.raw_label != "section_header":
-    #         return False
-
-    #     if features.is_known_newspaper or features.is_press_review_provider:
-    #         return False
-
-    #     if features.word_count < 3 or features.word_count > 18:
-    #         return False
-
-    #     if features.has_url:
-    #         return False
-
-    #     if features.has_foglio or features.has_surface or features.has_tiratura:
-    #         return False
-
-    #     if features.has_newsletter or features.has_related_marker:
-    #         return False
-
-    #     if features.bbox_width is not None and features.bbox_width < 120:
-    #         return False
-
-    #     return True
-
     @staticmethod
     def like_article_body(features: RegionFeatures) -> bool:
         if features.raw_label != "text":
@@ -463,63 +365,7 @@ class ArticleSemanticClassifier:
             return True
 
         return False
-    
-    def is_near_title(self, region: Region, title: Region) -> bool:
-        if not region.bbox or not title.bbox:
-            return False
-
-        x0, y0, x1, y1 = region.bbox
-        tx0, ty0, tx1, ty1 = title.bbox
-
-        overlap = self.overlap_ratio(tx0, tx1, x0, x1)
-
-        if overlap < 0.20:
-            return False
-
-        gap_above = ty0 - y1
-        gap_below = y0 - ty1
-
-        return (0 <= gap_above <= 90) or (0 <= gap_below <= 120)
-    
-    @staticmethod
-    def like_implicit_author(features: RegionFeatures) -> bool:
-        if features.word_count < 2 or features.word_count > 5:
-            return False
-
-        if features.entity_kind in {"source", "provider"}:
-            return False
         
-        if (features.entity_kind == "location" and not features.entity_ambiguous):
-            return False
-
-        if features.has_url:
-            return False
-
-        if features.has_foglio or features.has_surface:
-            return False
-
-        if features.has_tiratura or features.has_diffusione or features.has_lettori:
-            return False
-
-        if features.has_watermark_marker or features.has_rights_notice_marker:
-            return False
-
-        if "data stampa" in features.raw_text_lower:
-            return False
-
-        # Evita frasi/sezioni.
-        if any(char in features.raw_text_lower for char in [".", ":", ";", ","]):
-            return False
-
-        return True
-    
-    def is_near_any_anchor(self, region: Region, anchors: list[Region]) -> bool:
-        for anchor in anchors:
-            if self.is_near_title(region, anchor):
-                return True
-
-        return False
-    
     @staticmethod
     def find_previous_title(
         regions: list[Region],

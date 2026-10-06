@@ -10,7 +10,10 @@ class MetadataSeedClassifier:
         RegionType.WATERMARK,
         RegionType.RIGHTS_NOTICE,
         RegionType.ADVERTISEMENT,
-        RegionType.FOOTER
+        RegionType.FOOTER,
+        RegionType.TABLE,
+        RegionType.INFOGRAPHIC,
+        RegionType.PULL_QUOTE
     }
     
     SEED_TYPES = {
@@ -37,16 +40,6 @@ class MetadataSeedClassifier:
             features = self.feature_extractor.extract(region, page)
             if features.entity_kind is not None:
                 lookup_data = entity_lookup_metadata(features)
-                # region.metadata["entity_lookup"] = {
-                #     "kind": features.entity_kind,
-                #     "method": features.entity_method,
-                #     "canonical_name": features.entity_canonical_name,
-                #     "matched_name": features.entity_matched_name,
-                #     "similarity": features.entity_similarity,
-                #     "match_coverage": features.entity_match_coverage,
-                #     "priority": features.entity_priority,
-                #     "ambiguous": features.entity_ambiguous,
-                # }
                 region.metadata["entity_lookup"] = lookup_data
             text = features.raw_text_lower
             

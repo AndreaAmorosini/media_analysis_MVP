@@ -127,6 +127,14 @@ class PageNormalizer:
             
             metadata: dict[str, Any] = {"source_fragment_index": fragment_index}
             
+            if collection_name == "tables":
+                data = item.get("data") or {}
+                metadata["table_shape"] = {
+                    "rows": data.get("num_rows"),
+                    "columns": data.get("num_cols"),
+                }
+                metadata["table_ref"] = self_ref
+            
             if self_ref:
                 metadata["region_id"] = (f"{self_ref}:page={page_no}:fragment={fragment_index}")
                 
@@ -168,6 +176,9 @@ class PageNormalizer:
     
     
     def _map_region_type(self, label: str | None, collection_name: str) -> RegionType:
+        
+        if collection_name == "tables":
+            return RegionType.TABLE
         
         if collection_name == "pictures":
             return RegionType.IMAGE

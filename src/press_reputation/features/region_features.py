@@ -120,8 +120,8 @@ class RegionFeatureExtractor:
                 re.search(r"\b\d{1,2}[-/][a-zA-Z]{3}[-/]\d{4}\b", text)
                 or re.search(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", text)
             ),
-            has_author_marker=(
-                lower.strip().startswith("di ") or lower.strip().startswith("da" ) or "a cura di " in lower or lower.strip() in {"redazione", "la redazione"}
+            has_author_marker=bool(
+                re.match(r"^\s*(?:di\s+|da\s+|a\s+cura\s+di\s+)", text, flags=re.IGNORECASE)
             ),
             has_ad_marker=(
                 "pubblicità" in lower

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class RegionClassificationConfig(BaseModel):
     subtitle_max_gap_above: float = 60.0
@@ -100,3 +100,40 @@ class SectionHeaderResolutionConfig(BaseModel):
     
     min_score: float = 0.60
     min_score_for_body_reclassification: float = 0.72
+    
+class AuthorResolutionConfig(BaseModel):
+    min_name_tokens: int = 2
+    max_name_tokens: int = 5
+    
+    max_gap_from_header: float = 110.0
+    min_horizontal_overlap: float = 0.20
+    
+    implicit_min_score: float = 0.72
+    explicit_min_score: float = 0.70
+    author_index_min_similarity: float = 0.92
+    min_style_evidence_fraction: float = 0.50
+    
+    editorial_heading_phrases: set[str] = Field(
+        default_factory=lambda: {
+            "archivio storcio",
+            "approfondimenti",
+            "finalità educative",
+            "tra tradizione e innovazione",
+            "il confronto"
+        }
+    )
+    
+class WatermarkDetectionConfig(BaseModel):
+    min_score: float = 0.65
+    
+    low_opacity_threshold: float = 0.55
+    repeated_page_fraction: float = 0.50
+    min_document_pages_for_repetition: int = 2
+    
+    minimum_editorial_overlap: int = 2
+    
+    edge_fraction_x: float = 0.06
+    edge_fraction_y: float = 0.10
+    
+    maximum_strong_marker_chars: int = 120
+    maximum_weak_marker_chars: int = 200

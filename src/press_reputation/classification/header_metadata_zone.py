@@ -29,6 +29,9 @@ class HeaderMetadataZoneDetector:
         RegionType.RIGHTS_NOTICE,
         RegionType.FOOTER,
         RegionType.ADVERTISEMENT,
+        RegionType.TABLE,
+        RegionType.INFOGRAPHIC,
+        RegionType.PULL_QUOTE,
     }
 
     ALLOWED_METADATA_TYPES = {
@@ -71,29 +74,6 @@ class HeaderMetadataZoneDetector:
             absolute_top_limit,
         )
 
-        # for region in page.regions:
-        #     if not region.bbox or len(region.bbox) != 4:
-        #         continue
-
-        #     if region.type in self.PROTECTED_TYPES:
-        #         continue
-
-        #     y0 = region.bbox[1]
-
-        #     if y0 > header_bottom:
-        #         continue
-
-        #     region.metadata["in_header_metadata_zone"] = True
-
-        #     # Non convertire aggressivamente tutto ciò che è in alto.
-        #     # Converti solo regioni già plausibilmente metadata.
-        #     if region.type in self.ALLOWED_METADATA_TYPES:
-        #         continue
-
-        #     if self.looks_like_metadata_region(region):
-        #         region.type = RegionType.HEADER_METADATA
-        #         region.exclude_from_article_text = True
-        
         for region in page.regions:
             if (region.type in self.PROTECTED_TYPES or region.exclude_from_article_text and region.type not in self.SEED_TYPES):
                 continue

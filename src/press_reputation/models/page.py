@@ -46,6 +46,10 @@ class RegionType(str, Enum):
     NAVIGATION = "navigation"
     RELATED_CONTENT = "related_content"
     UNKNOWN = "unknown"
+    
+    PULL_QUOTE = "pull_quote"
+    TABLE = "table"
+    INFOGRAPHIC = "infographic"
 
 
 class SourceInfo(BaseModel):

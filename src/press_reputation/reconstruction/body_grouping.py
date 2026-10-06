@@ -50,7 +50,11 @@ class BodyGroupingResolver:
         RegionType.AUTHOR,
         RegionType.IMAGE,
         RegionType.CAPTION,
-        RegionType.ADVERTISEMENT
+        RegionType.ADVERTISEMENT,
+        RegionType.TABLE,
+        RegionType.INFOGRAPHIC,
+        RegionType.PULL_QUOTE,
+        RegionType.RELATED_CONTENT
     }
     
     def __init__(self, config: BodyGroupingConfig | None = None) -> None:
