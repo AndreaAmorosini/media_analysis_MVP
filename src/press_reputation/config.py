@@ -7,8 +7,6 @@ class RegionClassificationConfig(BaseModel):
     
     body_seed_min_words: int = 18
     body_continuation_threshold: float = 0.62
-        
-    boilerplate_min_page_frequency: float = 0.50
     
     watermark_opacity_threshold: float = 0.55
     
@@ -137,3 +135,31 @@ class WatermarkDetectionConfig(BaseModel):
     
     maximum_strong_marker_chars: int = 120
     maximum_weak_marker_chars: int = 200
+    
+class DocumentBoilerplateConfig(BaseModel):
+    min_distinct_pages: int = 2
+    min_page_frequency: float = 0.50
+
+    min_generic_text_chars: int = 8
+    max_region_text_chars: int = 180
+    max_generic_words: int = 12
+
+    # Distanza massima fra coordinate relative della stessa regione su due pagine.
+    max_relative_position_delta: float = 0.045
+    max_relative_size_delta: float = 0.06
+
+    # Confrontati solo se entrambi gli stili sono noti.
+    max_font_size_relative_difference: float = 0.20
+    
+class ArticleClusteringConfig(BaseModel):
+    min_assignment_score: float = 0.62
+    min_winning_margin: float = 0.12
+
+    min_horizontal_overlap: float = 0.25
+    max_local_gap_fraction: float = 0.12
+    max_media_gap_fraction: float = 0.18
+
+    max_column_edge_difference: float = 0.06
+
+    max_font_size_ratio_difference: float = 0.25
+    max_caption_image_gap_fraction: float = 0.04

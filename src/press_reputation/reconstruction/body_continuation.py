@@ -6,47 +6,76 @@ class BodyContinuationResolver:
         self.threshold = threshold
 
     def enrich(self, page: PageRecord) -> PageRecord:
-        body_regions = [
-            region
-            for region in page.regions
-            if region.type == RegionType.ARTICLE_BODY
-            and region.bbox
-            and not region.exclude_from_article_text
-            and region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}
-            and (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main")
-        ]
+        blocked_scopes = {"related", "advertisement", "boilerplate", "non_main"}
 
-        if not body_regions:
-            return page
+        body_regions = [
+            region for region in page.regions
+            if (region.type == RegionType.ARTICLE_BODY and region.article_id and region.bbox and
+                not region.exclude_from_article_text and region.metadata.get("content_scope") not in blocked_scopes and
+                (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main"))
+        ]
 
         candidates = [
-            region
-            for region in page.regions
-            if region.type == RegionType.UNKNOWN
-            and region.bbox
-            and region.text
-            and not region.exclude_from_article_text
-            and region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}
-            and (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main")
+            region for region in page.regions
+            if (region.type == RegionType.UNKNOWN and region.bbox and region.text and not region.exclude_from_article_text and
+                region.metadata.get("content_scope") not in blocked_scopes and
+                (page.page_type != PageType.WEB or region.metadata.get("content_scope") == "main"))
         ]
 
-        for candidate in candidates:
-            best_score = max(
-                self.continuation_score(candidate, body)
-                for body in body_regions
-            )
+        if not body_regions or not candidates:
+            return page
 
-            if best_score >= self.threshold:
+        # Ogni UNKNOWN recuperato diventa un riferimento per
+        # recuperare eventuali frammenti successivi dello stesso articolo.
+        changed = True
+
+        while changed:
+            changed = False
+
+            for candidate in list(candidates):
+                scores_by_article: dict[str, float] = {}
+
+                for body in body_regions:
+                    if (candidate.article_id and candidate.article_id != body.article_id):
+                        continue
+
+                    score = self.continuation_score(candidate, body)
+                    article_id = body.article_id
+                    scores_by_article[article_id] = max(score, scores_by_article.get(article_id, 0.0))
+
+                ranked = sorted(scores_by_article.items(), key=lambda item: (-item[1], item[0]))
+
+                if not ranked:
+                    continue
+
+                best_id, best_score = ranked[0]
+                second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+
+                if (best_score < self.threshold or (not candidate.article_id and best_score - second_score < 0.12)):
+                    candidate.metadata["body_continuation_candidates"] = [
+                        {
+                            "article_id": article_id,
+                            "score": round(score, 4),
+                        }
+                        for article_id, score in ranked[:3]
+                    ]
+                    continue
+
                 candidate.type = RegionType.ARTICLE_BODY
+                candidate.article_id = best_id
                 candidate.metadata["body_continuation_score"] = round(best_score, 4)
-                
+                candidate.metadata["body_detection_method"] = ("iterative_article_aware_v1")
+
                 if page.page_type == PageType.WEB:
-                    candidate.metadata["include_in_main_body"] = {
-                        candidate.metadata.get("content_scope") == "main" and not candidate.exclude_from_article_text
-                    }
+                    candidate.metadata["include_in_main_body"] = (candidate.metadata.get("content_scope") == "main" and
+                                                                    not candidate.exclude_from_article_text)
+
+                body_regions.append(candidate)
+                candidates.remove(candidate)
+                changed = True
 
         return page
-
+    
     def continuation_score(self, candidate: Region, body: Region) -> float:
         return (
             self.column_similarity(candidate, body) * 0.35

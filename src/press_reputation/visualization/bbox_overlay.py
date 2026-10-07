@@ -62,9 +62,18 @@ def render_page_bboxes(pdf_path: Path, page_record: PageRecord, output_path: Pat
             
             label = region.type.value
             original_label = label
+            if region.article_id:
+                label = (f"{label} [article_id: {region.article_id}]")
+                
+            clustering = region.metadata.get("article_clustering", {})
+            if clustering:
+                label = f"{label} [{clustering.get('status')}:{clustering.get('score')}]" 
+            
+            
             scope = region.metadata.get("content_scope")
             if scope is not None:
                 label = f"{original_label} [{scope}]"
+                
             candidate_id = region.metadata.get("article_candidate_id")
             if candidate_id:
                 anchor_page = region.metadata.get("article_anchor_pdf_page")

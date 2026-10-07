@@ -1,5 +1,6 @@
 #Si occupa di classificare le regioni tecniche come RIGHTS_NOTICE, WATERMARK, ADVERTISEMENT, ARTICLE_POSITION_THUMBNAIL, boilerplate, caption/image protection
 import re
+import unicodedata
 from press_reputation.features import RegionFeatureExtractor
 from press_reputation.models.page import PageRecord, Region, RegionType
 from press_reputation.config import WatermarkDetectionConfig
@@ -28,10 +29,24 @@ class TechnicalRegionClassifier:
             if region.type in {RegionType.TABLE, RegionType.INFOGRAPHIC, RegionType.PULL_QUOTE, RegionType.IMAGE}:
                 continue
 
-            if self.looks_like_rights_notice(features):
-                region.type = RegionType.RIGHTS_NOTICE
+            if region.type == RegionType.RIGHTS_NOTICE:
                 region.exclude_from_article_text = True
                 continue
+            
+            if features.has_rights_notice_marker:
+                status, marker = self.classify_rights_notice(region.text or "")
+                
+                region.metadata["rights_notice_detection"] = {
+                    "method": "standalone_notice_v1",
+                    "status": status,
+                    "marker": marker,
+                }
+                
+                if status == "accepted":
+                    region.metadata["type_before_rights_notice"] = region.type.value
+                    region.type = RegionType.RIGHTS_NOTICE
+                    region.exclude_from_article_text = True
+                    continue
             
             score, components, supported = (self.watermark_score(region, page, document_page_count=document_page_count))
             if components:
@@ -147,8 +162,40 @@ class TechnicalRegionClassifier:
         return (score, components, has_non_visual_support)
     
     @staticmethod
-    def looks_like_rights_notice(features) -> bool:
-        return features.has_rights_notice_marker
+    def classify_rights_notice(text: str) -> tuple[str, str | None]:
+        normalized = unicodedata.normalize("NFKC", text).casefold()
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = normalized.strip(" .;:!-–—…")
+        
+        strong_patterns = {
+            "riproduzione_riservata": (r"(?:©\s*)?riproduzione\s+riservata"),
+            "riproduzione_vietata": (r"(?:©\s*)?riproduzione\s+vietata"),
+            "tutti_i_diritti_riservati": (r"tutti\s+i\s+diritti\s+riservati"),
+            "all_rights_reserved": (r"all\s+rights\s+reserved"),
+        }
+        
+        for marker , pattern in strong_patterns.items():
+            if re.fullmatch(pattern, normalized):
+                return ("accepted", marker)
+            
+        restricted_patterns = {
+            "articolo_non_cedibile": (
+                r"articolo\s+non\s+cedibile(?:\s+(?:a\s+terzi|al\s+cliente\s+che\s+lo\s+riceve))?"
+            ),
+            "uso_esclusivo": (
+                r"uso\s+esclusivo(?:\s+(?:del\s+cliente|del\s+cliente\s+che\s+lo\s+riceve))?"
+            ),
+        }
+        
+        for marker, pattern in restricted_patterns.items():
+            if re.fullmatch(pattern, normalized):
+                return ("accepted", marker)
+            
+        all_patterns = (*strong_patterns.values(), *restricted_patterns.values())
+        if any(re.search(pattern, normalized) for pattern in all_patterns):
+            return ("ambiguous", None)
+        
+        return ("none", None)
     
     @staticmethod
     def looks_like_watermark(region: Region, features) -> bool:

@@ -68,8 +68,9 @@ class BodyGroupingResolver:
             region.metadata.pop("body_order_method", None)
         
         bodies = [region for region in page.regions if region.type == RegionType.ARTICLE_BODY and region.text and valid_bbox(region)
-                  and not region.exclude_from_article_text and not region.metadata.get("inside_article_position_thumbnail") and
-                  region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}]
+                    and not region.exclude_from_article_text and region.article_id is not None and
+                    not region.metadata.get("inside_article_position_thumbnail") and
+                    region.metadata.get("content_scope") not in {"related", "advertisement", "boilerplate", "non_main"}]
         
         columns: list[Column] = []
         
@@ -114,7 +115,7 @@ class BodyGroupingResolver:
             return False
         
         return(abs(region.bbox[0] - column.left) <= self.config.left_alignment_tolerance and
-               horizontal_overlap(region.bbox, column.reference_bbox) >= self.config.minimum_horizontal_overlap)
+                horizontal_overlap(region.bbox, column.reference_bbox) >= self.config.minimum_horizontal_overlap)
         
     def can_join(self, previous: Region, current: Region, page: PageRecord) -> bool:
         gap = current.bbox[1] - previous.bbox[3]

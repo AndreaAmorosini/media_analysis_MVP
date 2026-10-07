@@ -13,61 +13,41 @@ class ArticleDraftAssembler:
         "related", "advertisement", "boilerplate", "non_main"
     }
 
-    def assemble(
-        self,
-        pages: list[PageRecord],
-        links: list[FlowLink],
-    ) -> list[ArticleDraft]:
-        groups: dict[
-            tuple[str, str], list[tuple[PageRecord, Region]]
-        ] = defaultdict(list)
+    def assemble(self, pages: list[PageRecord], links: list[FlowLink]) -> list[ArticleDraft]:
+        groups: dict[tuple[str, str], list[tuple[PageRecord, Region]]] = defaultdict(list)
 
         for page in pages:
             for region in page.regions:
-                candidate_id = region.metadata.get("article_candidate_id")
-
-                if not candidate_id:
+                article_id = region.article_id or region.metadata.get("article_candidate_id")
+                
+                if not article_id:
                     continue
-
-                if (
-                    region.exclude_from_article_text
-                    or region.metadata.get("content_scope")
-                    in self.BLOCKED_SCOPES
-                ):
+                
+                legacy_id = region.metadata.get("article_candidate_id")
+                
+                if (legacy_id and region.article_id and legacy_id != region.article_id):
                     continue
-
-                groups[(page.document_id, candidate_id)].append(
-                    (page, region)
-                )
+                
+                if (region.exclude_from_article_text or region.metadata.get("content_scope") in self.BLOCKED_SCOPES):
+                    continue
+                
+                groups[(page.document_id, article_id)].append((page, region))
 
         drafts: list[ArticleDraft] = []
 
-        for (document_id, candidate_id), members in groups.items():
-            candidate_links = [
-                link
-                for link in links
-                if link.document_id == document_id
-                and link.article_candidate_id == candidate_id
-            ]
+
+        for (document_id, article_id), members in groups.items():
+            candidate_links = [link for link in links if link.document_id == document_id and
+                                link.article_candidate_id == article_id]
 
             # Non assemblare una catena contenente una contraddizione.
             # La suddivisione automatica in sottocatene è un passo separato.
             if any(link.status == "rejected" for link in candidate_links):
                 continue
 
-            titles = [
-                region.text
-                for _, region in members
-                if region.type == RegionType.ARTICLE_TITLE
-                and region.text
-            ]
+            titles = [region.text for _, region in members if region.type == RegionType.ARTICLE_TITLE and region.text]
 
-            body_members = [
-                (page, region)
-                for page, region in members
-                if region.type == RegionType.ARTICLE_BODY
-                and region.text
-            ]
+            body_members = [(page, region) for page, region in members if region.type == RegionType.ARTICLE_BODY and region.text]
 
             body_members.sort(key=self.order_key)
 
@@ -83,9 +63,7 @@ class ArticleDraftAssembler:
                 region_id = region.metadata.get("region_id")
 
                 if not region_id:
-                    warnings.append(
-                        f"Skipped region without stable ID on page {page.pdf_page}"
-                    )
+                    warnings.append(f"Skipped region without stable ID on page {page.pdf_page}")
                     continue
 
                 if parts:
@@ -104,9 +82,7 @@ class ArticleDraftAssembler:
                         text=text,
                         article_charspan=(start, cursor),
                         selection_status=(
-                            "main"
-                            if region.metadata.get("content_scope") == "main"
-                            else "candidate"
+                            "main" if region.metadata.get("content_scope") == "main" else "candidate"
                         ),
                         provenance=region.provenance,
                     )
@@ -118,25 +94,19 @@ class ArticleDraftAssembler:
             for link in candidate_links:
                 if link.status == "candidate":
                     warnings.append(
-                        "Unresolved continuation: "
-                        f"{link.from_pdf_page} -> {link.to_pdf_page}"
+                        f"Unresolved continuation: {link.from_pdf_page} -> {link.to_pdf_page}"
                     )
 
-            warnings.append(
-                "Draft body includes candidate regions; "
-                "not approved for automatic reputation scoring"
-            )
+            warnings.append("Draft body includes candidate regions; not approved for automatic reputation scoring")
 
             if len(titles) != 1:
                 warnings.append("Missing or ambiguous article title")
 
             drafts.append(
                 ArticleDraft(
-                    id=candidate_id,
+                    id=article_id,
                     document_id=document_id,
-                    pdf_pages=sorted({
-                        page.pdf_page for page, _ in members
-                    }),
+                    pdf_pages=sorted({page.pdf_page for page, _ in members}),
                     title=titles[0] if len(titles) == 1 else None,
                     body="\n\n".join(parts),
                     segments=segments,

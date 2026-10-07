@@ -29,6 +29,7 @@ from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMa
 from press_reputation.classification.subtitle_resolver import SubtitleResolver
 from press_reputation.classification.section_header_resolver import SectionHeaderResolver
 from press_reputation.classification.author_resolver import AuthorResolver
+from press_reputation.reconstruction.article_clustering import ArticleClusteringResolver
 
 
 class PageProcessingPipeline:
@@ -42,6 +43,7 @@ class PageProcessingPipeline:
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
         
+        self.article_clustering_resolver = ArticleClusteringResolver()
         self.author_resolver = AuthorResolver()
         self.section_header_resolver = SectionHeaderResolver()
         self.subtitle_resolver = SubtitleResolver()
@@ -97,21 +99,20 @@ class PageProcessingPipeline:
             page.page_type = self.page_classifier.classify(page)
             
 
-
-        # Passaggio documentale: selezione automatica contenuto web.
         self.web_content_resolver.enrich_document(pages)
         self.web_article_continuation_resolver.enrich_document(pages)
-        
+        self.article_clustering_resolver.assign_local(pages, self.review_index_matches)
         self.title_resolver.consolidate_candidates(pages)
-        
         self.flow_links = self.article_flow_resolver.resolve(pages)
-
-        # Secondo passaggio: recupero e raggruppamento.
+        self.article_clustering_resolver.link_accepted_flows(pages, self.flow_links)
+        
         for page in pages:
             if self.enable_body_continuation:
                 self.body_resolver.enrich(page)
-
+                
+            self.article_clustering_resolver.assign_recovered_body(page)
             self.section_header_resolver.enrich(page)
+            self.article_clustering_resolver.assign_section_headers_and_media(page)
             self.body_grouping_resolver.enrich(page)
-
+            
         return pages
