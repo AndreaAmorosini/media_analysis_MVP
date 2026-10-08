@@ -6,6 +6,11 @@ class RegionClassificationConfig(BaseModel):
     subtitle_min_horizontal_overlap: float = 0.25
     
     body_seed_min_words: int = 18
+    body_seed_min_font_ratio: float = 0.75
+    body_seed_max_font_ratio: float = 1.30
+    body_seed_max_bold_ratio: float = 0.70
+    body_seed_min_bold_evidence_fraction: float = 0.50
+    
     body_continuation_threshold: float = 0.62
     
     watermark_opacity_threshold: float = 0.55
@@ -163,3 +168,35 @@ class ArticleClusteringConfig(BaseModel):
 
     max_font_size_ratio_difference: float = 0.25
     max_caption_image_gap_fraction: float = 0.04
+
+class BodyContinuationConfig(BaseModel):
+    min_score: float = 0.70
+    min_winning_margin: float = 0.12
+
+    min_horizontal_overlap: float = 0.45
+    max_column_left_difference: float = 30.0
+
+    max_forward_gap: float = 120.0
+    max_vertical_overlap: float = 4.0
+
+    min_style_evidence_fraction: float = 0.50
+    max_heading_candidate_words: int = 10
+    
+class ArticleReadingOrderConfig(BaseModel):
+    column_left_tolerance: float = 18.0
+    min_column_overlap: float = 0.55
+
+    wide_region_width_ratio: float = 1.55
+    spanning_column_overlap: float = 0.35
+
+    # Usato per segnalare un salto locale, non per
+    # scartare testo dall'articolo.
+    suspicious_vertical_gap: float = 120.0
+    
+class NewspaperContinuationConfig(BaseModel):
+    min_candidate_score: float = 0.50
+    min_accept_score: float = 0.74
+    repeated_title_similarity: float = 0.84
+    index_title_similarity: float = 0.84
+
+    max_pdf_page_gap: int = 1

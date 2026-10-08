@@ -13,7 +13,8 @@ class SectionHeaderResolver:
         "related",
         "advertisement",
         "boilerplate",
-        "non_main"
+        "non_main",
+        "navigation"
     }
     
     def __init__(self, config: SectionHeaderResolutionConfig | None = None) -> None:

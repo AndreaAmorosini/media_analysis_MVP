@@ -126,37 +126,18 @@ class WebMainContentResolver:
 
         return pages
 
-    def enrich_page(
-        self,
-        page: PageRecord,
-        previous: WebPageContext | None = None,
-    ) -> WebPageContext | None:
+    def enrich_page(self, page: PageRecord, previous: WebPageContext | None = None) -> WebPageContext | None:
         for region in page.regions:
             region.metadata["content_scope"] = "unknown"
             region.metadata["content_scope_reason"] = "not_resolved"
             region.metadata["include_in_main_body"] = False
             region.metadata.pop("layout_area_id", None)
-
-            # if (
-            #     region.type in self.TECHNICAL_TYPES
-            #     or region.exclude_from_article_text
-            #     or region.metadata.get("inside_article_position_thumbnail")
-            # ):
-            #     self.assign(region, "boilerplate", "technical_or_excluded")
-
-            # elif region.type in self.EXTERNAL_TYPES:
-            #     scope = {
-            #         RegionType.ADVERTISEMENT: "advertisement",
-            #         RegionType.RELATED_CONTENT: "related",
-            #         RegionType.NAVIGATION: "non_main",
-            #     }[region.type]
-            #     self.assign(region, scope, "existing_semantic_label")
             
             if region.type in self.EXTERNAL_TYPES:
                 scope = {
                     RegionType.ADVERTISEMENT: "advertisement",
                     RegionType.RELATED_CONTENT: "related",
-                    RegionType.NAVIGATION: "non_main",
+                    RegionType.NAVIGATION: "navigation",
                 }[region.type]
 
                 self.assign(region, scope, "existing_semantic_label")
@@ -183,30 +164,38 @@ class WebMainContentResolver:
             and region.metadata["content_scope"] == "unknown"
         ]
 
-        module_starts = [
-            normalized_box(region, page)[1]
-            for region in usable
-            if self.is_related_module_start(region, usable, page)
-        ]
-        stop_y = min(module_starts) if module_starts else None
+        for marker in page.regions:
+            if not valid_bbox(marker):
+                continue
 
-        # Se c'è una struttura di modulo correlato, escludiamo il modulo,
-        # non tutto ciò che è genericamente sotto il titolo.
-        if stop_y is not None:
+            if not self.is_related_module_start(marker, usable, page):
+                continue
+
+            marker_box = normalized_box(marker, page)
+            max_bottom = min(marker_box[3] + self.config.inline_module_max_height, 1.0)
+
+            next_body_y = min((normalized_box(region, page)[1] for region in usable if region is not marker and
+                                self.is_body_seed(region, page) and normalized_box(region, page)[1] >= marker_box[3] and
+                                horizontal_overlap(normalized_box(region, page), marker_box) >= self.config.minimum_horizontal_overlap),
+                            default=1.0,)
+
             for region in usable:
-                if normalized_box(region, page)[1] >= stop_y:
-                    self.assign(
-                        region,
-                        "related",
-                        "related_module_with_image_and_short_text",
-                    )
+                if region.metadata["content_scope"] != "unknown":
+                    continue
 
-        seeds = [
-            region
-            for region in usable
-            if self.is_body_seed(region, page)
-            and region.metadata["content_scope"] == "unknown"
-        ]
+                box = normalized_box(region, page)
+                if region is marker:
+                    self.assign(region, "related", "local_related_module_marker")
+                    continue
+
+                if (box[1] < marker_box[3] or box[1] >= min(max_bottom, next_body_y) or
+                    horizontal_overlap(box, marker_box) < self.config.minimum_horizontal_overlap):
+                    continue
+
+                if (region.type == RegionType.IMAGE or (region.type == RegionType.UNKNOWN and word_count(region.text) <= 35)):
+                    self.assign(region, "related", "local_related_module")
+
+        seeds = [region for region in usable if self.is_body_seed(region, page) and region.metadata["content_scope"] == "unknown"]
 
         if not seeds:
             return None
@@ -217,12 +206,9 @@ class WebMainContentResolver:
             region
             for region in usable
             if region.type == RegionType.ARTICLE_TITLE
-            and region.metadata["content_scope"] == "unknown"
-            and horizontal_overlap(
-                normalized_box(region, page), column
-            ) >= self.config.minimum_horizontal_overlap
-            and normalized_box(region, page)[3]
-            <= max(normalized_box(seed, page)[1] for seed in column_seeds)
+                and region.metadata["content_scope"] == "unknown"
+                and horizontal_overlap(normalized_box(region, page), column) >= self.config.minimum_horizontal_overlap
+                and normalized_box(region, page)[3] <= max(normalized_box(seed, page)[1] for seed in column_seeds)
         ]
 
         # Con più titoli concorrenti non scegliamo arbitrariamente

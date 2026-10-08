@@ -93,6 +93,7 @@ class TitleResolver:
                 "advertisement",
                 "boilerplate",
                 "non_main",
+                "navigation"
             }
         )
         

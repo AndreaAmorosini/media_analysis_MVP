@@ -97,6 +97,7 @@ class WebArticleContinuationResolver:
         "advertisement",
         "boilerplate",
         "non_main",
+        "navigation"
     }
 
     OWNED_KEYS = {

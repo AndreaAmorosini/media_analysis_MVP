@@ -29,6 +29,7 @@ class AuthorResolver:
         "advertisement",
         "boilerplate",
         "non_main",
+        "navigation"
     }
     
     def __init__(self, config: AuthorResolutionConfig | None = None) -> None:

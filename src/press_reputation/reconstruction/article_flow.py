@@ -31,7 +31,7 @@ def valid_box(region: Region) -> bool:
 
 class ArticleFlowResolver:
     BLOCKED_SCOPES = {
-        "related", "advertisement", "boilerplate", "non_main"
+        "related", "advertisement", "boilerplate", "non_main", "navigation"
     }
 
     REQUIRED_EVIDENCE = {

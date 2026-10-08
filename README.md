@@ -1,8 +1,8 @@
 # Press Reputation
 
-Pipeline locale per l’estrazione strutturata di articoli da PDF di rassegne stampa. Il sistema combina testo PDF estraibile e OCR selettivo, conserva raw e provenance, classifica le regioni e produce bozze di articolo quando dispone di evidenze sufficienti.
+Pipeline locale per l’estrazione strutturata di articoli da PDF di rassegne stampa. Combina testo PDF estraibile e OCR selettivo, conserva dati raw e provenance, classifica le regioni, attribuisce identità articolo e produce bozze con segmenti ordinati.
 
-**Stato attuale:** la CLI produce `PageRecord`, link di continuazione e `ArticleDraft` candidati. `ArticleRecord` è definito nei modelli, ma non è ancora generato dalla pipeline CLI. Le bozze non costituiscono input approvati automaticamente per sentiment analysis o reputation scoring.
+**Stato attuale:** la CLI produce `PageRecord`, link di continuazione, sequenze di reading order e `ArticleDraft` candidati. `ArticleRecord` è definito nei modelli, ma non è ancora generato dalla CLI. Le bozze non sono approvate automaticamente per sentiment analysis o reputation scoring.
 
 ## Esecuzione
 
@@ -18,7 +18,7 @@ Per generare anche gli overlay delle bounding box:
 PYTHONPATH=src pixi run python -m press_reputation.cli "percorso/rassegna.pdf" --debug-bbox
 ```
 
-L’opzione `--output-dir` permette di cambiare la directory dei risultati; il valore predefinito è `results/`.
+L’opzione `--output-dir` cambia la directory dei risultati; il valore predefinito è `results/`.
 
 ## Flusso implementato
 
@@ -26,11 +26,11 @@ L’opzione `--output-dir` permette di cambiare la directory dei risultati; il v
 PDF
   │
   ├─ DocumentProfiler
-  │    testo PDF e copertura immagini per pagina
+  │    misura testo PDF e copertura immagini per pagina
   │
   ├─ DoclingParser
   │    conversione senza OCR
-  │    └─ OCR delle sole pagine selezionate dal profiler
+  │    └─ OCR delle pagine selezionate dal profiler
   │
   ├─ PageNormalizer
   │    documento Docling → PageRecord e Region
@@ -39,7 +39,7 @@ PDF
   │    deduplicazione e fusione di testo PDF/OCR
   │
   ├─ ReviewIndexParser
-  │    lettura dell'indice tabellare dal raw Docling
+  │    legge l'indice tabellare dal raw Docling
   │
   ├─ PageProcessingPipeline
   │    PdfStyleEnricher
@@ -59,11 +59,13 @@ PDF
   │    PageClassifier
   │
   │    WebMainContentResolver
+  │    InlineIntrusionDetector
   │    WebArticleContinuationResolver
   │    ArticleClusteringResolver: attribuzione locale
   │    TitleResolver.consolidate_candidates
   │    ArticleFlowResolver
-  │    ArticleClusteringResolver: link accepted
+  │    ArticleClusteringResolver: link web accettati
+  │    NewspaperContinuationResolver
   │
   │    per ogni pagina:
   │      BodyContinuationResolver
@@ -72,26 +74,28 @@ PDF
   │      ArticleClusteringResolver: heading e media
   │      BodyGroupingResolver
   │
+  │    ArticleReadingOrderResolver
+  │
   ├─ ArticleDraftAssembler
   ├─ analisi delle miniature di posizione dell'articolo
   └─ JSON e overlay opzionali
 ```
 
-`src/press_reputation/cli.py` orchestra estrazione, salvataggio e assemblaggio dei draft. `src/press_reputation/pipeline.py` definisce l’ordine delle classificazioni e della ricostruzione intermedia.
+`src/press_reputation/cli.py` orchestra estrazione, salvataggio e assemblaggio dei draft. `src/press_reputation/pipeline.py` definisce l’ordine delle classificazioni e dei resolver.
+
+**Attenzione:** la delimitazione locale dei moduli related in `WebMainContentResolver` presenta attualmente un errore di indentazione, documentato nella sezione «Limiti e correzioni aperte».
 
 ## 1. Document profiling e OCR selettivo
 
-`profiling/document_profiler.py` usa PyMuPDF per misurare, su ogni pagina:
+`profiling/document_profiler.py` usa PyMuPDF per misurare su ogni pagina:
 
-- parole leggibili dal livello testuale del PDF;
-- parole nella parte centrale, escludendo fasce di header e footer;
-- copertura delle immagini, stimata su una griglia.
+- parole leggibili dal livello testuale PDF;
+- parole nella zona centrale, escludendo fasce di header e footer;
+- copertura delle immagini.
 
-Le soglie sono in `DocumentProfilingConfig`. L’OCR viene richiesto quando manca testo PDF e sono presenti immagini significative, oppure quando il testo centrale è scarso rispetto al contenuto immagine. Poche parole, da sole, non impongono OCR.
+Le soglie sono in `DocumentProfilingConfig`. L’OCR viene richiesto quando il testo PDF è assente in presenza di immagini significative oppure quando il testo centrale è scarso rispetto al contenuto immagine. Poche parole, da sole, non impongono OCR.
 
-`DoclingParser` converte prima il PDF con OCR disattivato. Per ogni pagina selezionata crea anche un PDF temporaneo image-only della pagina originale e lo converte con OCR. I risultati vengono normalizzati separatamente e fusi da `profiling/merge.py`, che confronta bbox e somiglianza testuale per evitare alcune duplicazioni.
-
-Il profilo finale della pagina può avere:
+`DoclingParser` converte il PDF con OCR disattivato. Per ogni pagina selezionata converte inoltre una copia temporanea image-only con OCR attivo. I due risultati sono normalizzati separatamente e fusi da `profiling/merge.py`, che confronta bbox e somiglianza testuale per evitare alcune duplicazioni.
 
 | `extraction_profile.kind` | Significato |
 | --- | --- |
@@ -101,30 +105,30 @@ Il profilo finale della pagina può avere:
 | `image_only` | Immagini presenti, ma nessun testo utilizzabile. |
 | `null` | Nessun testo o immagine utile rilevato. |
 
-`Region.extraction_method` e la provenance indicano `pdf_text`, `ocr` o `unknown`. Per il passaggio OCR vengono conservati anche il riferimento alla pagina temporanea e la mappatura alla pagina PDF originale.
+`Region.extraction_method` e la provenance indicano `pdf_text`, `ocr` o `unknown`. Per il passaggio OCR sono conservati anche la pagina temporanea e la mappatura alla pagina PDF originale.
 
-**Nota:** `pdf_text` descrive il canale letto dalla pipeline, non certifica che il documento fosse nato digitale. Il PDF potrebbe contenere un livello OCR incorporato in precedenza.
+`pdf_text` descrive il canale letto dalla pipeline, non dimostra che il PDF fosse nato digitale: potrebbe avere un livello OCR preesistente.
 
 ## 2. Modelli, bbox e provenance
 
 I modelli principali sono in `models/page.py`:
 
-- `PageRecord`: numero di pagina PDF, dimensioni, tipo editoriale, profilo di estrazione, fonte, informazioni sul ritaglio, sezione e regioni;
+- `PageRecord`: numero di pagina PDF, dimensioni, tipo editoriale, profilo di estrazione, fonte, clipping, sezione e regioni;
 - `Region`: tipo, testo, bbox, label Docling originale, metodo di estrazione, provenance, stile, flag di esclusione, metadata di classificazione e `article_id` opzionale;
-- `SourceInfo`: fonte, tipo, data, pagina originale e URL;
-- `ClippingInfo`: foglio corrente/totale e superficie, se disponibili.
+- `SourceInfo`: nome della fonte, tipo, data, pagina originale e URL;
+- `ClippingInfo`: foglio corrente/totale e superficie, quando disponibili.
 
-`PageType` (`index`, `clipping`, `web`, `pure_text`, `unknown`) riguarda il ruolo editoriale della pagina. È distinto da `extraction_profile.kind`, che riguarda l’origine del testo.
+`PageType` (`index`, `clipping`, `web`, `pure_text`, `unknown`) descrive il ruolo editoriale della pagina. È distinto da `extraction_profile.kind`, che descrive l’origine del testo.
 
-Le bbox interne usano `[x0, y0, x1, y1]`, origine in alto a sinistra e coordinate in punti PDF. Quando possibile, il normalizer conserva `self_ref`, label Docling, `charspan`, bbox raw e pagina in `Region.provenance`. Gli output Docling raw restano disponibili separatamente.
+Le bbox interne usano `[x0, y0, x1, y1]`, origine in alto a sinistra e coordinate in punti PDF. Quando disponibili, sono conservati `self_ref`, label Docling, `charspan`, bbox raw e pagina nella provenance. Gli output Docling raw restano disponibili separatamente.
 
-Il `PageNormalizer` riconosce la collection Docling `tables` come `RegionType.TABLE`. Per ogni tabella conserva `metadata["table_shape"]` e `metadata["table_ref"]`; le celle strutturate sono consultabili nel documento raw tramite il riferimento alla tabella.
+`PageNormalizer` mappa la collection Docling `tables` a `RegionType.TABLE` e conserva `metadata["table_shape"]` e `metadata["table_ref"]`. Le celle si recuperano dal raw tramite il riferimento alla tabella.
 
-**Distinzione importante:** la provenance descrive *da dove proviene la regione*. `metadata["article_clustering"]` descrive invece *perché è stata attribuita a un articolo*. Nessuno dei due dati deve sostituire l’altro.
+La provenance indica **da dove proviene una regione**; `metadata["article_clustering"]` indica **perché è stata attribuita a un articolo**. Nessuna delle due informazioni sostituisce l’altra.
 
 ## 3. Stile PDF e boilerplate documentale
 
-`PdfStyleEnricher` precede le classificazioni locali. Legge gli span testuali del PDF con PyMuPDF e, quando riesce ad associarli geometricamente a una regione, scrive in `Region.style`:
+`PdfStyleEnricher` opera prima delle classificazioni locali. Associa, quando possibile, gli span PDF alle regioni e scrive in `Region.style`:
 
 - `font_names` e `dominant_font`;
 - `median_font_size` e `max_font_size`;
@@ -133,70 +137,37 @@ Il `PageNormalizer` riconosce la collection Docling `tables` come `RegionType.TA
 - origine e numero degli span associati;
 - quota di evidenza interpretabile per bold e italic.
 
-Uno stile non inferibile rimane sconosciuto: un nome di font embedded non informativo non dimostra che il testo sia normale. L’enricher non attribuisce alle regioni OCR gli span del PDF originale.
+Un nome di font embedded non informativo non dimostra che il testo sia normale. Lo stile non inferibile resta sconosciuto; gli span del PDF originale non vengono attribuiti alle regioni OCR.
 
-### Fingerprint boilerplate
+`DocumentBoilerplateDetector` raggruppa regioni dello stesso documento tramite testo o pattern normalizzato, bbox relativa e stile quando disponibile. Gestisce famiglie quali `Data Stampa`, label di sezione e alcuni rights notice. Calcola la ripetizione su pagine PDF distinte e annota `metadata["boilerplate_detection"]`, `boilerplate` e `boilerplate_frequency`.
 
-`DocumentBoilerplateDetector` raggruppa le regioni per documento usando un fingerprint composto da:
-
-- testo normalizzato o pattern testuale;
-- bbox relativa alla pagina;
-- font dominante e dimensione mediana, quando disponibili.
-
-Sono previste famiglie per `Data Stampa`, `WEB`, `STAMPA LOCALE`/`STAMPA NAZIONALE` e candidati rights notice quali `ARTICOLO NON CEDIBILE` e `USO ESCLUSIVO`. Per alcune famiglie tecniche i numeri variabili vengono normalizzati; per il testo generico resta il confronto testuale esatto.
-
-La frequenza è calcolata sulle **pagine PDF distinte dello stesso documento**. Il detector registra il fingerprint e le evidenze in `Region.metadata["boilerplate_detection"]`; quando il gruppo supera le soglie imposta `boilerplate` e `boilerplate_frequency`.
-
-**Ripetizione non significa esclusione automatica:** il detector non imposta `exclude_from_article_text`. I classifier successivi devono stabilire se la regione sia watermark, rights notice, metadata, contenuto web esterno o testo editoriale. Il testo raw resta invariato. Su un documento di una sola pagina non viene dedotta una ripetizione fra pagine.
+**Ripetizione non significa esclusione automatica:** il detector non cancella il testo raw né imposta da solo `exclude_from_article_text`. Le classificazioni successive determinano il ruolo della regione.
 
 ## 4. Classificazione tecnica, rights notice e watermark
 
-### Classificazione tecnica
-
-`TechnicalRegionClassifier` riconosce `RIGHTS_NOTICE`, `WATERMARK`, `ADVERTISEMENT` e miniature tecniche della posizione dell’articolo. Le miniature vengono distinte dalle immagini editoriali e possono causare l’esclusione delle regioni contenute al loro interno.
-
-I tipi strutturati `TABLE`, `INFOGRAPHIC` e `PULL_QUOTE`, quando già assegnati, sono protetti dalle euristiche tecniche testuali. Una normale `IMAGE` non viene trasformata automaticamente in infographic.
+`TechnicalRegionClassifier` riconosce miniature della posizione dell’articolo, `RIGHTS_NOTICE`, `WATERMARK` e `ADVERTISEMENT`. I tipi strutturati `TABLE`, `INFOGRAPHIC` e `PULL_QUOTE`, quando già assegnati, sono protetti dalle euristiche tecniche testuali.
 
 ### Rights notice
 
-Il classifier tecnico esamina formule quali:
+Il classifier distingue avvisi autonomi — per esempio `© RIPRODUZIONE RISERVATA` o `ARTICOLO NON CEDIBILE` — da blocchi misti che contengono anche testo editoriale. Conserva la decisione in `metadata["rights_notice_detection"]`. Un notice accettato è escluso dal body, ma regione, bbox e provenance restano nei `PageRecord`.
 
-- `© RIPRODUZIONE RISERVATA`;
-- `TUTTI I DIRITTI RISERVATI`;
-- `ARTICOLO NON CEDIBILE`;
-- `USO ESCLUSIVO`.
+### Watermark
 
-`classify_rights_notice()` normalizza il testo **solo per il confronto** e distingue notice autonomi accettati da blocchi ambigui che contengono anche altro testo. Per un notice accettato assegna `RegionType.RIGHTS_NOTICE` e `exclude_from_article_text=True`, conservando la regione, il testo originale, la bbox e la provenance nei `PageRecord`.
+Il percorso attivo usa `watermark_score()` invece della sola opacità. Combina marker come `Data Stampa`, opacity, colore, frequenza fra pagine, posizione, geometria, overlap con testo plausibilmente editoriale ed evidenze negative. Sono richiesti sia uno score sufficiente sia supporto non puramente visivo: testo editoriale chiaro non deve diventare watermark solo perché ha bassa opacity.
 
-Il risultato è annotato in `Region.metadata["rights_notice_detection"]`. Un blocco misto ambiguo non deve far escludere indiscriminatamente l’intero paragrafo. La classificazione rights notice ha precedenza sul watermark score.
+Score, componenti ed esito restano in `metadata["watermark_detection"]`. `RIGHTS_NOTICE` ha precedenza rispetto a `WATERMARK`.
 
-### Watermark scoring
-
-Il percorso attivo per i watermark usa `watermark_score()`, non la sola opacità. Combina:
-
-- marker forte, in particolare una regione breve che inizia con `Data Stampa`;
-- marker più deboli;
-- opacità e colore;
-- frequenza fra pagine dal boilerplate detector;
-- posizione ai margini e geometria verticale;
-- overlap con testo potenzialmente editoriale;
-- penalità per blocchi lunghi e label Docling da heading.
-
-Per assegnare `WATERMARK` devono essere soddisfatti **sia** la soglia di score **sia** un gate di supporto non puramente visivo. Un testo chiaro non diventa quindi watermark soltanto perché ha bassa opacità.
-
-Score, componenti, soglia ed esito sono registrati in `Region.metadata["watermark_detection"]` quando vi sono indizi valutati.
-
-**Limite implementativo:** in `WatermarkDetectionConfig`, `minimum_editorial_overlap` è attualmente `int = 2`, mentre `bbox_overlap_fraction()` restituisce valori tra `0` e `1`. Il componente `editorial_overlap` non può quindi attivarsi con tale configurazione. Va corretto in una frazione configurabile prima di considerarlo un segnale operativo. In `TechnicalRegionClassifier` rimane inoltre il vecchio `looks_like_watermark()`, non chiamato dal percorso attivo.
+**Limite noto:** `WatermarkDetectionConfig.minimum_editorial_overlap` è attualmente `int = 2`, mentre l’overlap calcolato varia tra `0` e `1`. Il relativo componente dello score non può quindi attivarsi finché la soglia non diventa una frazione appropriata. Nel classifier rimane anche il vecchio metodo `looks_like_watermark()`, non chiamato dal percorso attivo.
 
 ## 5. Metadata, source, provider e location
 
 `MetadataSeedClassifier` riconosce `SOURCE_NAME`, `PRESS_REVIEW_PROVIDER`, `PUBLICATION_DATE`, `ORIGINAL_PAGE`, `CLIPPING_SHEET` e `HEADER_METADATA`.
 
-`HeaderMetadataZoneDetector` usa i seed nella parte alta della pagina per delimitare la fascia dei metadata. La zona protegge normalmente le sue regioni dalla promozione a titolo, subtitle, body, section header, autore o location. Conserva nei metadata il ruolo e i limiti della decisione.
+`HeaderMetadataZoneDetector` delimita una fascia superiore tramite i seed; le regioni protette nella zona non vengono normalmente promosse a titolo, subtitle, body, section header, autore o location.
 
-`MetadataExtractor` popola `page.source`, `page.clipping` e `page.section` da regioni metadata e candidati circoscritti. Non usa l’intera pagina come fallback generale per data o URL.
+`MetadataExtractor` popola fonte, clipping e sezione usando regioni metadata e candidati circoscritti. Non usa l’intera pagina come fallback generale per data o URL.
 
-`lookup.resolve_entity()` restituisce un `EntityMatch` con categoria, metodo, nome canonico, nome confrontato, similarity, `match_coverage` e ambiguità. Gli stage vengono valutati nell’ordine:
+`lookup.resolve_entity()` restituisce un risultato strutturato con categoria, metodo, nome canonico, similarity, `match_coverage` e ambiguità. Applica gli stage nell’ordine:
 
 1. exact source;
 2. source alias;
@@ -207,104 +178,121 @@ Score, componenti, soglia ed esito sono registrati in `Region.metadata["watermar
 7. exact location;
 8. fuzzy location.
 
-`match_coverage` misura quanta parte dell’intera regione è spiegata dal nome geografico. «Napoli» non rende automaticamente `LOCATION` la regione «CRONACHE DI NAPOLI». Le soglie fuzzy dei comuni dipendono dalla lunghezza del nome e sono configurate in `EntityLookupConfig`.
+`match_coverage` misura quanta parte dell’intera regione è spiegata dalla località: «Napoli» non trasforma automaticamente «CRONACHE DI NAPOLI» in `LOCATION`. Le soglie fuzzy dei comuni dipendono dalla lunghezza del nome e sono configurabili.
 
-`RegionFeatureExtractor` produce un unico esito entity per regione; i classifier applicano poi vincoli relativi al **ruolo** del testo. Componenti che non usano le entità, come `TechnicalRegionClassifier`, chiamano `extract(..., include_entity=False)` per evitare un lookup superfluo: questo non registra un match negativo.
+I componenti che non necessitano di entità possono chiamare `RegionFeatureExtractor.extract(..., include_entity=False)` evitando un lookup superfluo, senza registrare un match negativo.
 
 ## 6. Review Index
 
-`ReviewIndexParser` legge il documento Docling raw, non soltanto i `PageRecord`: nell’esempio presente nel repository le celle dell’indice sono in `tables[].data.grid`, mentre la regione tabella normalizzata può avere `text=null`.
+`ReviewIndexParser` legge il documento Docling raw: nell’esempio presente nel repository le celle dell’indice sono in `tables[].data.grid`, mentre la regione tabella normalizzata può avere `text=null`.
 
-Il parser attuale riconosce nelle prime pagine tabelle `document_index` a cinque colonne:
+Il parser corrente riconosce nelle prime pagine tabelle `document_index` a cinque colonne: data, fonte, pagina originale e titolo, autore, pagina iniziale della rassegna. Produce `ReviewIndexEntry` con valori e riferimenti alle celle. `category` è prevista nel modello ma non viene attribuita da un’intestazione generale senza associazione verificabile.
 
-1. data di pubblicazione;
-2. fonte;
-3. pagina originale e titolo;
-4. autore;
-5. pagina iniziale nella rassegna.
+`ReviewIndexMatcher` confronta le entry con i titoli proposti. L’indice rimane una **prior**, non ground truth: non sovrascrive automaticamente titolo, fonte o autore. Può essere usato come evidenza dal collegamento multipagina cartaceo quando l’entry è associata al titolo anchor.
 
-Produce `ReviewIndexEntry` con valori estratti, riferimento alla tabella, riga e provenance delle celle. `category` è prevista nel modello ma non viene inferita indiscriminatamente da un’intestazione generale.
+## 7. Titolo, subtitle, autore e section header
 
-`ReviewIndexMatcher` confronta le entry con i titoli proposti sulla pagina; somiglianza del titolo e metadata locali costituiscono evidenze o contraddizioni. L’indice è una **prior**, non ground truth: non sovrascrive automaticamente testo, autore o fonte dell’articolo e non crea da solo un link multipagina.
+`TitleResolver` combina label Docling, dimensione font relativa al body, bold, geometria, posizione, vicinanza al body e somiglianza con l’indice. Salva score e componenti in `metadata["title_candidate"]`. Non impone un titolo unico per pagina; quando esiste un’identità articolo può consolidare il main title per quel gruppo.
 
-## 7. Titolo, sottotitolo, autore e section header
+`SubtitleResolver` cerca candidati sopra **e** sotto ciascun titolo locale. Usa distanza, overlap orizzontale, larghezza, posizione prima del body e stile. Le assegnazioni ambigue restano esplicite in `metadata["subtitle_resolution"]`.
 
-### Titolo
+`AuthorResolver` valuta byline esplicite e nomi impliciti tramite forma del nome, posizione rispetto a title/subtitle e body, stile e possibile autore dell’indice già associato al titolo. L’autore indicato dall’indice non crea una regione che non esiste nel PDF. Il risultato è in `metadata["author_resolution"]`.
 
-`TitleResolver` valuta regioni candidate combinando label Docling, larghezza e posizione, dimensione font relativa al body, evidenza bold, vicinanza al body o ad altri elementi dell’header e somiglianza con i titoli delle entry indice.
+`SectionHeaderResolver` opera dopo il recupero del body. Cerca heading brevi tra body precedente e successivo compatibili, salvando score, tipo precedente, ID dei body adiacenti e stato dell’associazione in `metadata["section_header_resolution"]`.
 
-Scrive score e componenti in `Region.metadata["title_candidate"]`. Non impone un solo titolo per pagina. Dopo il clustering locale, `consolidate_candidates()` applica il vincolo ai gruppi che possiedono un’identità articolo; negli altri casi conserva l’incertezza.
+## 8. Clustering e articoli cartacei multipagina
 
-### Sottotitolo
+`ArticleClusteringResolver` assegna `Region.article_id` senza modificare testo o provenance. Crea anchor locali dai titoli, collega subtitle e author ai rispettivi header e confronta i body con articoli concorrenti. Score, alternativa e metodo sono registrati in `metadata["article_clustering"]`. In mancanza di evidenza sufficiente, `article_id` resta `null`.
 
-`SubtitleResolver` cerca candidati **sopra e sotto** ciascun titolo locale. Usa distanza, overlap orizzontale, larghezza, posizione prima di un body anchor, stile rispetto al body e indizi bold/italic. Se una regione può riferirsi con punteggi simili a titoli diversi, l’assegnazione resta ambigua.
+Per il web riusa le catene candidate e i link accettati. Per i ritagli cartacei interviene successivamente `NewspaperContinuationResolver`:
 
-Il risultato e il riferimento al titolo sono conservati in `Region.metadata["subtitle_resolution"]`.
+- confronta fogli PDF adiacenti dello stesso documento;
+- usa `sheet_current/sheet_total`, source, data, pagina originale, Review Index e fingerprint dell’eventuale titolo ripetuto;
+- considera `foglio 1/2 → foglio 2/2` un’evidenza molto forte, salvo contraddizioni;
+- non richiede title o body sul secondo foglio;
+- può attribuire l’`article_id` a immagini e caption del foglio successivo senza trasformarle in body.
 
-### Autore
+I link `candidate` e `accepted` sono in `flow/links.json`. Anche le decisioni rifiutate e le contraddizioni vengono salvate in `flow/newspaper_continuation_decisions.json`, senza far scartare automaticamente l’intero draft a causa di un link cartaceo rejected.
 
-`AuthorResolver` gestisce byline esplicite e firme implicite name-like. Valuta token, capitalizzazione, vicinanza a titolo/subtitle, posizione rispetto al body, stile e un eventuale autore proveniente da una entry dell’indice già matched al titolo.
+Una pagina di sole immagini senza marker del foglio leggibile **non** viene collegata automaticamente per sola adiacenza. Se un link è accettato ma la pagina non produce regioni utilizzabili, la pagina può comunque comparire in `ArticleDraft.pdf_pages`; non vengono inventati media o testo.
 
-Conserva metodo, score, componenti e prior in `Region.metadata["author_resolution"]`. L’autore dell’indice non crea una regione `AUTHOR` se non esiste un candidato nel PDF. La lista negativa dei heading editoriali è configurabile.
+## 9. Web main content e intrusion inline
 
-### Section header
+`WebMainContentResolver` seleziona la colonna principale usando body seed e, quando possibile, titolo, URL e continuità della colonna fra pagine. Mantiene distinti gli scope:
 
-`SectionHeaderResolver` viene eseguito **dopo** il recupero del body e prima del raggruppamento. Cerca una regione breve fra un body precedente e uno successivo geometricamente compatibili, con indizi Docling o tipografici. Usa l’identità articolo dei body quando disponibile; altrimenti registra un’associazione locale provvisoria.
+| Scope | Significato |
+| --- | --- |
+| `main` | Contenuto attribuito all’area principale. |
+| `related` | Modulo o contenuto correlato esterno al body principale. |
+| `advertisement` | Contenuto pubblicitario. |
+| `navigation` | Navigazione riconosciuta semanticamente. |
+| `non_main` | Regione fuori area principale o prima del suo inizio. |
+| `unknown` | Regione non ancora risolta. |
 
-Conserva score, ID dei body adiacenti, tipo precedente e stato dell’associazione in `Region.metadata["section_header_resolution"]`.
+Un modulo related dovrebbe essere delimitato **localmente**: non dovrebbe rendere `related` tutto ciò che segue fino alla fine della pagina. **Nel codice corrente questa delimitazione richiede ancora la correzione di indentazione indicata nei limiti sotto.**
 
-## 8. Article clustering
+`InlineIntrusionDetector` è inserito dopo `WebMainContentResolver` e prima della continuazione web. Esamina regioni `UNKNOWN` o `ARTICLE_BODY` nella stessa area, comprese fra due body `main` compatibili. Combina:
 
-`ArticleClusteringResolver` attribuisce `Region.article_id` senza cambiare `RegionType`, testo o provenance. L’identità canonica deriva da un anchor titolo con `region_id` stabile oppure, per le catene web già identificate, riusa il relativo `article_candidate_id`.
+- marker di related content o pubblicità;
+- lunghezza;
+- aspetto da link;
+- font, dimensione, bold o italic diversi dai body vicini;
+- distanza dai body;
+- debole evidenza di discontinuità lessicale.
 
-Il passaggio `assign_local()`:
+Un marker esplicito oppure link-like formatting insieme a differenza di stile deve supportare lo score. Un semplice cambio lessicale non basta. Una regione accettata diventa `RELATED_CONTENT` o `ADVERTISEMENT`, riceve lo scope corrispondente ed è esclusa dal body; la valutazione rimane in `metadata["inline_intrusion"]`, con ID dei due body anchor, score ed evidenze.
 
-1. crea anchor separati per i titoli ammissibili, permettendo **più articoli sulla stessa pagina**;
-2. assegna subtitle e author quando i rispettivi resolver forniscono un riferimento al titolo/header;
-3. conserva le identità già proposte dal resolver di continuazione web per i body `main`;
-4. valuta i body locali rispetto ai cluster concorrenti usando overlap, distanza, colonna, stile, posizione rispetto al titolo, barriera di titoli concorrenti e match con l’indice;
-5. attribuisce `article_id` soltanto se score e margine rispetto al secondo cluster sono sufficienti.
+L’intrusione **non** termina l’articolo: i body prima e dopo possono conservare lo stesso `article_id` e rimanere nella sequenza ordinata. `BodyGroupingResolver` può separarli in gruppi geometrici locali senza interrompere il draft.
 
-Le assegnazioni e le alternative sono registrate in `Region.metadata["article_clustering"]`. I casi senza evidenza o con titoli concorrenti restano irrisolti: `article_id=None` è preferibile a un’associazione sbagliata.
+Il detector richiede due body già riconosciuti nella stessa pagina e area. Non identifica tutte le intrusion all’inizio o alla fine dell’articolo e non rende automaticamente `main` ogni `UNKNOWN` nella colonna.
 
-Dopo `ArticleFlowResolver`, `link_accepted_flows()` usa soltanto link `accepted` con regioni di confine individuabili. ID contraddittori producono una contraddizione anziché essere fusi silenziosamente. Il componente attuale di flow è soprattutto orientato alle catene web: questo passaggio **non introduce ancora il linking automatico dei clipping cartacei multipagina**.
+## 10. Body seed e recupero iterativo
 
-Dopo il recupero body, `assign_recovered_body()` annota i body rimasti senza ID. `assign_section_headers_and_media()` può attribuire:
+La classificazione semantica distingue il body affidabile trovato localmente da quello recuperato:
 
-- section header quando i body precedente e successivo condividono `article_id`;
-- immagini, infographic, tabelle e pull quote vicini a body già attribuiti, se un cluster prevale;
-- caption vicine a media già attribuiti.
+- `ARTICLE_BODY` con `metadata["body_role"]="seed"`: abbastanza testo, stile compatibile quando noto, nessun marker tecnico/editoriale esterno;
+- `UNKNOWN`: regione conservata, anche quando è più breve della soglia seed;
+- `ARTICLE_BODY` con `body_role="continuation"`: frammento recuperato da `BodyContinuationResolver`.
 
-Il clustering attuale **non assegna ancora sistematicamente `LOCATION`** né risolve le pagine composte soltanto da immagini prive di un collegamento multipagina affidabile. Source, data e URL di `PageRecord` sono dati di pagina: su una pagina multi-articolo non costituiscono automaticamente metadata di ogni cluster.
+La soglia indicativa di 18 parole è configurata in `RegionClassificationConfig` per individuare seed, **non** per vietare che un blocco corto diventi body.
 
-## 9. Body continuation e reading order
+`BodyContinuationResolver` richiede un body di riferimento con `article_id`. Valuta candidati `UNKNOWN` tramite articolo, colonna, prossimità in avanti, overlap, larghezza, font dominante, font size, bold/italic e barriere locali di reading order. Usa una frontiera ordinata: ogni candidato promosso diventa immediatamente riferimento per quelli rimasti, fino a convergenza.
 
-`BodyContinuationResolver` considera soltanto body già dotati di `article_id`. Per ogni `UNKNOWN` calcola il miglior punteggio **per articolo**, richiede soglia e margine rispetto ai concorrenti e, quando lo promuove a `ARTICLE_BODY`, gli assegna lo stesso ID. Il frammento recuperato diventa un nuovo riferimento, permettendo un’espansione iterativa.
+Conserva metodo, score, riferimento, round della promozione e componenti in `Region.metadata`; candidature ambigue o insufficienti restano `UNKNOWN`. Le bbox non vengono fuse.
 
-Le alternative non sufficientemente distinte restano in `metadata["body_continuation_candidates"]`. Il margine è attualmente un valore interno (`0.12`): andrebbe centralizzato prima della calibrazione sul corpus.
+Sulle pagine web, un `UNKNOWN` deve attualmente avere `content_scope="main"` per essere recuperato come continuation. Il filtro delle intrusion non allenta automaticamente questo requisito: brevi frammenti genuini con scope ancora `unknown` possono quindi rimanere fuori dal body.
 
-`BodyGroupingResolver` considera solo body con `article_id` e non unisce nella stessa colonna regioni con ID differenti. Assegna `body_group_id`, `body_column_id` e `body_reading_order` **locali alla pagina**. Heading e alcuni oggetti strutturati possono fungere da separatori geometrici; watermark e rights notice non devono spezzare il flusso di lettura.
+## 11. Reading order per articolo e ArticleDraft
 
-Questo ordinamento non garantisce ancora la ricostruzione generale di segmenti cross-column o di una sequenza unica multipagina.
+`BodyGroupingResolver` mantiene gruppi e colonne locali alla pagina, utili anche per il debug. Dopo il grouping, `ArticleReadingOrderResolver` lavora per `(document_id, article_id)`:
 
-## 10. Tipi strutturati e ArticleDraft
+1. rileva colonne dai body attribuiti;
+2. ordina le colonne da sinistra a destra;
+3. ordina le regioni dentro ciascuna colonna;
+4. inserisce `ARTICLE_SECTION_HEADER`;
+5. tratta regioni che attraversano più colonne come separatori di bande;
+6. produce una sequenza ordinata anche su più pagine PDF.
+
+Ogni `ReadingOrderSegment` conserva tipo, pagina PDF, colonna, ordine, bbox, testo, confidence, metodo, ID della regione e provenance. L’ordine è annotato anche in `Region.metadata["article_reading_order"]`.
+
+`ArticleDraftAssembler` usa questi segmenti per generare `body`, charspan e `DraftSegment` tipizzati. Il body del draft può quindi contenere anche gli section header nella posizione ordinata. Rimane testo **raw**: la normalizzazione `body_raw → body_clean` è una fase distinta non ancora implementata.
+
+Il reading order non include ancora immagini, tabelle, pull quote, infographic e caption come segmenti multimodali. Tali regioni possono appartenere all’articolo e restare visibili nei `PageRecord` senza essere concatenate al body testuale.
+
+## 12. Tipi di regione strutturati
 
 | Tipo | Politica rispetto al body |
 | --- | --- |
-| `ARTICLE_SECTION_HEADER` | Heading interno: appartiene potenzialmente all’articolo, ma non è un paragrafo body. |
-| `WATERMARK`, `RIGHTS_NOTICE` | Testo tecnico escluso dal body; regione originale conservata. |
-| `ADVERTISEMENT`, `RELATED_CONTENT` | Fuori dal body dell’articolo principale. |
-| `PULL_QUOTE` | Citazione evidenziata: non concatenata automaticamente per evitare duplicazioni. |
-| `TABLE` | Struttura riferita al raw Docling; non concatenata come prosa. |
+| `ARTICLE_SECTION_HEADER` | Heading interno incluso nella sequenza testuale ordinata. |
+| `WATERMARK`, `RIGHTS_NOTICE` | Testo tecnico escluso; regione originale conservata. |
+| `ADVERTISEMENT`, `RELATED_CONTENT`, `NAVIGATION` | Fuori dal body dell’articolo principale. |
+| `PULL_QUOTE` | Citazione evidenziata non concatenata automaticamente. |
+| `TABLE` | Struttura riferita al raw Docling; non trattata come prosa. |
 | `INFOGRAPHIC` | Media editoriale distinto; non equivale a ogni `IMAGE`. |
 
-`PULL_QUOTE` e `INFOGRAPHIC` sono tipi disponibili e protetti, non categorie con detector automatici completi. Le tabelle Docling sono invece mappate esplicitamente a `TABLE`.
+`PULL_QUOTE` e `INFOGRAPHIC` sono tipi disponibili e protetti, non categorie con detector automatici completi.
 
-`ArticleDraftAssembler` raggruppa le regioni usando `Region.article_id`, con fallback compatibile a `metadata["article_candidate_id"]` quando l’ID canonico manca. Rifiuta regioni in cui i due ID sono discordanti. Costruisce `body` e `DraftSegment` **soltanto da regioni `ARTICLE_BODY`** ammesse e ordinate; conserva bbox, charspan, provenance, link e warning.
-
-Un articolo senza body assegnato non produce un draft. Section header, author e media attribuiti restano nei `PageRecord`, ma non sono ancora segmenti tipizzati e ordinati all’interno di `ArticleDraft`.
-
-## 11. Output e debug
+## 13. Output e debug
 
 Per `rassegna.pdf`, la CLI scrive sotto `results/rassegna/`:
 
@@ -314,54 +302,41 @@ results/rassegna/
 │   └── document.json
 ├── raw/
 │   ├── document.json
-│   └── ocr_page_NNN.json          # se la pagina è stata elaborata con OCR
+│   └── ocr_page_NNN.json
 ├── pages/
 │   └── page_NNN.json
 ├── flow/
 │   ├── links.json
+│   ├── reading_order.json
 │   ├── article_drafts.json
+│   ├── newspaper_continuation_decisions.json
 │   ├── review_index_entries.json
 │   └── review_index_matches.json
 └── debug/
     └── page_NNN.png              # con --debug-bbox
 ```
 
-I JSON delle pagine sono la fonte principale per score, provenance, stato del clustering e alternative scartate. Gli overlay mostrano bbox e tipo, con annotazioni su `article_id`, clustering, scope e catena web quando disponibili.
+`raw/ocr_page_NNN.json` esiste soltanto per le pagine elaborate con OCR. Gli overlay sono opzionali; score, scope, identità articolo, provenance, alternative e decisioni dettagliate sono nei JSON.
 
-Il colore della bbox viene selezionato tramite il **tipo originale** (`region.type.value`), non tramite l’etichetta estesa che include l’ID articolo. I tipi non presenti in `REGION_COLORS` usano il colore di fallback.
+La CLI esegue anche `image_analysis/position_thumbnail.py` prima di salvare i `PageRecord`.
 
-**Limite attuale dell’etichetta overlay:** nel ramo che aggiunge `content_scope`, il codice ricostruisce `label` a partire da `original_label`; ciò può nascondere nel testo dell’etichetta `article_id` e score già aggiunti. Non altera il colore né i dati JSON.
+## 14. Configurazione
 
-La CLI esegue anche `image_analysis/position_thumbnail.py` prima del salvataggio dei `PageRecord`, per arricchire le miniature tecniche della posizione dell’articolo.
+`src/press_reputation/config.py` contiene configurazioni per profiling/OCR, Review Index, header metadata, title/subtitle/author/section header, fuzzy entity lookup, watermark, boilerplate, clustering, body continuation, reading order e continuazione cartacea.
 
-## 12. Configurazione
+`classification/web_content_config.py` contiene le soglie di selezione del contenuto web e dell’`InlineIntrusionDetector`. Alcuni componenti, fra cui `BodyGroupingResolver` e la continuazione web, mantengono configurazioni locali. Le soglie non sono ancora tutte calibrate sul corpus.
 
-`src/press_reputation/config.py` contiene configurazioni per:
+## 15. Limiti e correzioni aperte
 
-- document profiling e OCR;
-- Review Index;
-- header metadata;
-- title, subtitle, author e section header resolution;
-- fuzzy entity lookup;
-- watermark detection;
-- fingerprint boilerplate documentale;
-- article clustering;
-- alcune soglie generali di classificazione.
-
-Altri componenti mantengono configurazioni locali, fra cui i resolver web, `BodyGroupingResolver` e parte del recupero body. Non tutte le soglie sono già centralizzate o calibrate sul corpus.
-
-## 13. Limiti e lavori successivi
-
-- `ArticleRecord` non viene ancora finalizzato dalla CLI a partire da `ArticleDraft`.
-- Il clustering è locale alla pagina, con riuso delle catene web e dei link accettati disponibili. Non collega ancora autonomamente i clipping `foglio 1/2 → foglio 2/2`.
-- `Region.article_id` è l’identità canonica del nuovo clustering; `metadata["article_candidate_id"]` resta un dato intermedio del percorso web. Non tutte le regioni pertinenti ricevono necessariamente un ID: i casi ambigui restano visibili.
-- L’attribuzione di `LOCATION`, URL e metadata per singolo articolo su pagine multi-articolo non è ancora completa.
-- Reading order e body grouping sono principalmente locali alla pagina. Section header, tabelle, pull quote, infographic e caption non formano ancora una sequenza mista di segmenti in `ArticleDraft`.
-- Non esiste ancora una fase dedicata `body_raw → body_clean` per dehyphenation, paragrafi e pulizia OCR.
-- Il parser dell’indice copre il formato tabellare a cinque colonne implementato; altri layout o indici OCR possono richiedere adattamenti.
-- Il fingerprint boilerplate normalizza numeri variabili soltanto per alcune famiglie note. La ripetizione non dimostra che una regione debba essere esclusa dall’articolo.
-- `WatermarkDetectionConfig.minimum_editorial_overlap` è attualmente `2`, mentre l’overlap calcolato è fra `0` e `1`: questa componente dello score richiede una correzione della configurazione.
-- La lista negativa dell’`AuthorResolver` contiene attualmente `archivio storcio` anziché `archivio storico`; quel caso non beneficia dell’esclusione lessicale finché non viene corretto.
+- **Correzione necessaria nel contenuto web:** in `classification/web_main_content.py` il ciclo `for region in usable` che dovrebbe delimitare il modulo related è attualmente fuori dal ciclo `for marker in page.regions`. Senza marker può leggere `marker_box` non inizializzato; con più marker considera soltanto l’ultimo. Indentare il blocco all’interno del ciclo sui marker prima di fare affidamento sul nuovo filtro web.
+- `ArticleRecord` non viene ancora finalizzato dalla CLI.
+- Il collegamento cartaceo è conservativo: richiede un articolo identificabile e prove compatibili. L’assenza di titolo/body sul secondo foglio è supportata; l’assenza di marker e altre evidenze non autorizza un link automatico.
+- L’`InlineIntrusionDetector` richiede body prima e dopo sulla stessa pagina e area; brevi `UNKNOWN` web non vengono automaticamente recuperati se non hanno scope `main`.
+- Il reading order è costruito da bbox e article ID. Non può riordinare il testo *all’interno* di una bbox multi-colonna indivisa né attribuire un ordine multimodale completo a media e caption.
+- `BodyGroupingResolver` produce ancora un ordine locale per pagina; quello autorevole per il draft è la sequenza di `ArticleReadingOrderResolver`.
+- Non esiste ancora una fase dedicata per dehyphenation, ricostruzione dei paragrafi e pulizia OCR del body.
+- `WatermarkDetectionConfig.minimum_editorial_overlap` è attualmente `2`, incompatibile con un overlap compreso fra `0` e `1`.
+- La lista negativa dell’`AuthorResolver` contiene attualmente `archivio storcio` anziché `archivio storico`.
 - La CLI di parsing non esegue sentiment analysis target-aware né calcola automaticamente il Media Reputation Score dagli `ArticleDraft`.
 
-**Principio operativo:** conservare raw Docling, profili, testo e bbox originali, provenance, score, indizi, alternative e warning. Un’assegnazione provvisoria o un dato assente non devono essere presentati come un articolo finale certo.
+**Principio operativo:** conservare raw Docling, profili, testo e bbox originali, provenance, score, indizi, alternative e warning. Una decisione provvisoria o un dato assente non devono essere presentati come un `ArticleRecord` finale certo.

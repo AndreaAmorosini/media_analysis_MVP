@@ -31,6 +31,7 @@ class ArticleClusteringResolver:
         "advertisement",
         "boilerplate",
         "non_main",
+        "navigation"
     }
 
     MEDIA_TYPES = {

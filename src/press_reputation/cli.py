@@ -112,10 +112,19 @@ def parse(
     flow_dir = document_dir / "flow"
     flow_dir.mkdir(parents=True, exist_ok=True)
     
+    (flow_dir / "reading_order.json").write_text(
+        json.dumps([item.model_dump(mode="json") for item in (pipeline.reading_orders.values())], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
+    (flow_dir / "newspaper_continuation_decisions.json").write_text(
+        json.dumps(pipeline.newspaper_continuation_resolver.decisions, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
     (flow_dir / "links.json").write_text(
         json.dumps([link.model_dump(mode="json") for link in pipeline.flow_links], indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    drafts = ArticleDraftAssembler().assemble(pages=pages, links=pipeline.flow_links)
+    
+    drafts = ArticleDraftAssembler().assemble(pages=pages, links=pipeline.flow_links, reading_orders=pipeline.reading_orders)
     
     (flow_dir / "article_drafts.json").write_text(
         json.dumps([draft.model_dump(mode="json") for draft in drafts], indent=2, ensure_ascii=False), encoding="utf-8"

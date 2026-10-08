@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from press_reputation.models.page import PageRecord, Region, RegionType
+from press_reputation.reconstruction.flow_models import ArticleReadingOrder, ReadingOrderSegment
 from press_reputation.reconstruction.flow_models import (
     ArticleDraft,
     DraftSegment,
@@ -10,10 +11,10 @@ from press_reputation.reconstruction.flow_models import (
 
 class ArticleDraftAssembler:
     BLOCKED_SCOPES = {
-        "related", "advertisement", "boilerplate", "non_main"
+        "related", "advertisement", "boilerplate", "non_main", "navigation"
     }
 
-    def assemble(self, pages: list[PageRecord], links: list[FlowLink]) -> list[ArticleDraft]:
+    def assemble(self, pages: list[PageRecord], links: list[FlowLink], reading_orders: dict[tuple[str, str], ArticleReadingOrder] | None = None) -> list[ArticleDraft]:
         groups: dict[tuple[str, str], list[tuple[PageRecord, Region]]] = defaultdict(list)
 
         for page in pages:
@@ -46,48 +47,79 @@ class ArticleDraftAssembler:
                 continue
 
             titles = [region.text for _, region in members if region.type == RegionType.ARTICLE_TITLE and region.text]
+            
+            order_record = (reading_orders.get((document_id, article_id)) if reading_orders is not None else None)
+            
+            warnings: list[str] = []
+            if order_record is not None:
+                ordered_segments = [segment for segment in order_record.segments
+                                    if segment.type in {RegionType.ARTICLE_BODY, RegionType.ARTICLE_SECTION_HEADER}]
+                ordered_segments.sort(key=lambda segment: segment.order)
+                warnings.extend(order_record.warnings)
+            else:
+                warnings.append("Missing article reading order; using default ordering")
+                body_members = [(page, region) for page, region in members if region.type == RegionType.ARTICLE_BODY and region.text]
+                body_members.sort(key=self.order_key)
+                
+                ordered_segments = []
+                for position, (page, region) in enumerate(body_members, start=1):
+                    region_id = region.metadata.get("region_id")
+                    if not region_id:
+                        warnings.append(f"Skipped region without stable ID on page {page.pdf_page}")
+                        continue
+                        
+                    ordered_segments.append(
+                        ReadingOrderSegment(
+                            article_id=article_id,
+                            region_id=region_id,
+                            type=RegionType.ARTICLE_BODY,
+                            pdf_page=page.pdf_page,
+                            column=None,
+                            order=position,
+                            bbox=region.bbox,
+                            text=region.text,
+                            confidence=0.25,
+                            method="legacy_page_order",
+                            provenance=region.provenance,
+                        )
+                    )
 
-            body_members = [(page, region) for page, region in members if region.type == RegionType.ARTICLE_BODY and region.text]
-
-            body_members.sort(key=self.order_key)
-
-            if not body_members:
+            if not any(segment.type == RegionType.ARTICLE_BODY for segment in ordered_segments):
                 continue
-
+            
             parts: list[str] = []
             segments: list[DraftSegment] = []
-            warnings: list[str] = []
             cursor = 0
-
-            for page, region in body_members:
-                region_id = region.metadata.get("region_id")
-
-                if not region_id:
-                    warnings.append(f"Skipped region without stable ID on page {page.pdf_page}")
-                    continue
-
+            
+            for segment in ordered_segments:
                 if parts:
-                    cursor += 2  # Separatore "\n\n".
-
-                text = region.text
+                    cursor += 2
+                    
                 start = cursor
-                cursor += len(text)
-                parts.append(text)
-
+                cursor += len(segment.text)
+                parts.append(segment.text)
+                
+                region = next((region for page, region in members 
+                                if page.pdf_page == segment.pdf_page and region.metadata.get("region_id") == segment.region_id), None)
+                
+                selection_status = ("main" if (region is not None and region.metadata.get("content_scope") == "main") else "candidate")
+                
                 segments.append(
                     DraftSegment(
-                        region_id=region_id,
-                        pdf_page=page.pdf_page,
-                        bbox=region.bbox,
-                        text=text,
+                        region_id = segment.region_id,
+                        pdf_page = segment.pdf_page,
+                        bbox = segment.bbox,
+                        text=segment.text,
                         article_charspan=(start, cursor),
-                        selection_status=(
-                            "main" if region.metadata.get("content_scope") == "main" else "candidate"
-                        ),
-                        provenance=region.provenance,
+                        selection_status = selection_status,
+                        provenance=segment.provenance,
+                        type=segment.type,
+                        column=segment.column,
+                        order=segment.order,
+                        confidence=segment.confidence,
                     )
                 )
-
+                
             if not segments:
                 continue
 
@@ -106,7 +138,9 @@ class ArticleDraftAssembler:
                 ArticleDraft(
                     id=article_id,
                     document_id=document_id,
-                    pdf_pages=sorted({page.pdf_page for page, _ in members}),
+                    pdf_pages=sorted({page.pdf_page for page, _ in members} |
+                                        {page_number for link in candidate_links if link.status == "accepted" 
+                                            for page_number in (link.from_pdf_page, link.to_pdf_page)}),
                     title=titles[0] if len(titles) == 1 else None,
                     body="\n\n".join(parts),
                     segments=segments,

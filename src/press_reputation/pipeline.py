@@ -30,19 +30,24 @@ from press_reputation.classification.subtitle_resolver import SubtitleResolver
 from press_reputation.classification.section_header_resolver import SectionHeaderResolver
 from press_reputation.classification.author_resolver import AuthorResolver
 from press_reputation.reconstruction.article_clustering import ArticleClusteringResolver
+from press_reputation.reconstruction.article_reading_order import ArticleReadingOrderResolver
+from press_reputation.reconstruction.flow_models import ArticleReadingOrder
+from press_reputation.reconstruction.newspaper_continuation import NewspaperContinuationResolver
+from press_reputation.classification.inline_intrusion import InlineIntrusionDetector
+
+
 
 
 class PageProcessingPipeline:
-    def __init__(
-        self,
-        enable_style_enrichment: bool = True,
-        enable_boilerplate_detection: bool = True,
-        enable_body_continuation: bool = True,
-    ) -> None:
+    def __init__(self, enable_style_enrichment: bool = True, enable_boilerplate_detection: bool = True, enable_body_continuation: bool = True) -> None:
         self.enable_style_enrichment = enable_style_enrichment
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
         
+        self.inline_intrusion_detector = InlineIntrusionDetector()
+        self.newspaper_continuation_resolver = NewspaperContinuationResolver()
+        self.reading_order_resolver = ArticleReadingOrderResolver()
+        self.reading_orders: dict[tuple[str, str], ArticleReadingOrder] = {}
         self.article_clustering_resolver = ArticleClusteringResolver()
         self.author_resolver = AuthorResolver()
         self.section_header_resolver = SectionHeaderResolver()
@@ -69,6 +74,7 @@ class PageProcessingPipeline:
     def process(self, pages: list[PageRecord], pdf_path: Path | None = None, review_index_entries: list[ReviewIndexEntry] | None = None) -> list[PageRecord]:
         self.flow_links = []
         self.review_index_matches = []
+        self.reading_orders = {}
         
         if self.enable_style_enrichment and pdf_path is not None:
             self.style_enricher.enrich_document(pdf_path=pdf_path, pages=pages)
@@ -100,11 +106,17 @@ class PageProcessingPipeline:
             
 
         self.web_content_resolver.enrich_document(pages)
+        for page in pages:
+            self.inline_intrusion_detector.enrich(page)
         self.web_article_continuation_resolver.enrich_document(pages)
         self.article_clustering_resolver.assign_local(pages, self.review_index_matches)
         self.title_resolver.consolidate_candidates(pages)
+        
         self.flow_links = self.article_flow_resolver.resolve(pages)
         self.article_clustering_resolver.link_accepted_flows(pages, self.flow_links)
+        
+        newspaper_links = self.newspaper_continuation_resolver.resolve(pages, entries=review_index_entries, matches=self.review_index_matches)
+        self.flow_links.extend(newspaper_links)
         
         for page in pages:
             if self.enable_body_continuation:
@@ -114,5 +126,7 @@ class PageProcessingPipeline:
             self.section_header_resolver.enrich(page)
             self.article_clustering_resolver.assign_section_headers_and_media(page)
             self.body_grouping_resolver.enrich(page)
+        
+        self.reading_orders = self.reading_order_resolver.resolve(pages)
             
         return pages

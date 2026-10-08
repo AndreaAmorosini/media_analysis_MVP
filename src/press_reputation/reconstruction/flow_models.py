@@ -1,6 +1,8 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from press_reputation.models.page import RegionType
+
 class FlowLink(BaseModel):
     document_id: str
     article_candidate_id: str
@@ -15,6 +17,30 @@ class FlowLink(BaseModel):
     
     from_region_id: str | None = None
     to_region_id: str | None = None
+    confidence: float | None = None
+    
+class ReadingOrderSegment(BaseModel):
+    article_id: str
+    region_id: str
+    type: RegionType
+    pdf_page: int
+
+    column: int | None = None
+    order: int
+
+    bbox: list[float] | None = None
+    text: str
+    confidence: float
+
+    method: str = "article_columns_v1"
+    provenance: list[dict] = Field(default_factory=list)
+
+
+class ArticleReadingOrder(BaseModel):
+    document_id: str
+    article_id: str
+    segments: list[ReadingOrderSegment] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     
 class DraftSegment(BaseModel):
     region_id: str
@@ -26,6 +52,11 @@ class DraftSegment(BaseModel):
     
     selection_status: Literal["main", "candidate"]
     provenance: list[dict] = Field(default_factory=list)
+    
+    type: RegionType = RegionType.ARTICLE_BODY
+    column: int | None = None
+    order: int | None = None
+    confidence: float | None = None
     
 class ArticleDraft(BaseModel):
     id: str

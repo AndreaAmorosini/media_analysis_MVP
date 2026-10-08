@@ -30,7 +30,7 @@ class SubtitleResolver:
             region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or region.metadata.get("inside_article_position_thumbnail")):
             return False
         
-        if region.metadata.get("content_scope") in {"related", "advertisement", "boilerplate", "non_main"}:
+        if region.metadata.get("content_scope") in {"related", "advertisement", "boilerplate", "non_main", "navigation"}:
             return False
         
         entity = region.metadata.get("entity_lookup") or {}
