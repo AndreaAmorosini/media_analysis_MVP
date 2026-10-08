@@ -16,6 +16,10 @@ class ArticleFlowConfig(BaseModel):
         "in", "di", "a", "da", "con", "per",
         "tra", "fra", "che", "del", "della", "delle", "dei",
     )
+    
+    min_web_accept_score: float = Field(default=0.82, ge=0, le=1)
+    strong_boundary_bonus: float = Field(default=0.12, ge=0, le=1)
+    min_independent_signals: int = Field(default=2, ge=1)
 
 
 def valid_box(region: Region) -> bool:
@@ -106,27 +110,27 @@ class ArticleFlowResolver:
                     links.append(link)
                     continue
 
-                if (
-                    previous.source.publication_date is not None
-                    and page.source.publication_date is not None
-                    and previous.source.publication_date
-                    != page.source.publication_date
-                ):
-                    link.status = "rejected"
-                    link.contradictions.append("different_publication_dates")
-                    links.append(link)
-                    continue
+                # if (
+                #     previous.source.publication_date is not None
+                #     and page.source.publication_date is not None
+                #     and previous.source.publication_date
+                #     != page.source.publication_date
+                # ):
+                #     link.status = "rejected"
+                #     link.contradictions.append("different_publication_dates")
+                #     links.append(link)
+                #     continue
 
-                source_evidence = {
-                    "same_source_header", "same_source_name"
-                } & set(evidence)
+                # source_evidence = {
+                #     "same_source_header", "same_source_name"
+                # } & set(evidence)
 
-                if (
-                    not self.REQUIRED_EVIDENCE.issubset(evidence)
-                    or not source_evidence
-                ):
-                    links.append(link)
-                    continue
+                # if (
+                #     not self.REQUIRED_EVIDENCE.issubset(evidence)
+                #     or not source_evidence
+                # ):
+                #     links.append(link)
+                #     continue
 
                 left_regions = self.flow_regions(previous, candidate_id)
                 right_regions = self.flow_regions(page, candidate_id)
@@ -142,21 +146,51 @@ class ArticleFlowResolver:
                 link.from_region_id = left.metadata.get("region_id")
                 link.to_region_id = right.metadata.get("region_id")
 
-                if self.compatible_sentence_boundary(
-                    left, right, previous, page
-                ):
+                # if self.compatible_sentence_boundary(
+                #     left, right, previous, page
+                # ):
+                #     link.status = "accepted"
+                #     link.evidence.extend([
+                #         "unfinished_sentence_at_page_end",
+                #         "compatible_lowercase_start",
+                #         "aligned_boundary_regions",
+                #     ])
+
+                #     # Recupero limitato ai due frammenti del collegamento.
+                #     self.recover_fragment(left)
+                #     self.recover_fragment(right)
+
+                # links.append(link)
+                
+                base_score = max(
+                    (region.metadata.get("web_continuation_score") or 0.0)
+                    for region in regions
+                )
+                boundary = self.compatible_sentence_boundary(left, right, previous, page)
+                score = min(
+                    base_score + (self.config.strong_boundary_bonus if boundary else 0.0),
+                    1.0,
+                )
+
+                independent = {
+                    "same_article_url", "same_source", "same_source_header",
+                    "compatible_main_column", "page_starts_with_body",
+                    "syntactic_continuity", "lexical_continuity", "same_author",
+                } & set(evidence)
+
+                link.from_region_id = left.metadata.get("region_id")
+                link.to_region_id = right.metadata.get("region_id")
+                link.confidence = round(score, 4)
+
+                if (score >= self.config.min_web_accept_score and
+                    len(independent) >= self.config.min_independent_signals):
                     link.status = "accepted"
-                    link.evidence.extend([
-                        "unfinished_sentence_at_page_end",
-                        "compatible_lowercase_start",
-                        "aligned_boundary_regions",
-                    ])
+                    link.evidence.append("evidence_score_accepted")
 
-                    # Recupero limitato ai due frammenti del collegamento.
-                    self.recover_fragment(left)
-                    self.recover_fragment(right)
-
-                links.append(link)
+                    if boundary:
+                        link.evidence.append("strong_sentence_boundary")
+                        self.recover_fragment(left)
+                        self.recover_fragment(right)
 
         return links
 

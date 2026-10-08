@@ -137,6 +137,10 @@ def parse(
     (flow_dir / "review_index_matches.json").write_text(
         json.dumps([match.model_dump(mode="json") for match in pipeline.review_index_matches], indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    
+    (flow_dir / "web_continuation_decisions.json").write_text(
+        json.dumps(pipeline.web_article_continuation_resolver.decisions, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
         
     for page in pages:
         enrich_article_position_thumbnails(pdf_path=pdf_path, page=page)

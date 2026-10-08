@@ -237,8 +237,7 @@ class WebMainContentResolver:
             if (
                 previous is not None
                 and previous.pdf_page + 1 == page.pdf_page
-                and current_url is not None
-                and current_url == previous.url_key
+                and (current_url is None or previous.url_key is None or current_url == previous.url_key)
                 and abs(column[0] - previous.column[0])
                 <= self.config.left_alignment_tolerance
                 and abs(column[2] - previous.column[2])
@@ -246,7 +245,7 @@ class WebMainContentResolver:
             ):
                 confirmed = True
                 area_id = previous.layout_area_id
-                reason = "adjacent_page_same_article_url_and_column"
+                reason = "adjacent_page_compatible_column_no_url_conflict"
 
         for region in usable:
             if region.metadata["content_scope"] != "unknown":

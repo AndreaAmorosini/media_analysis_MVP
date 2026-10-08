@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from math import isfinite
 from statistics import median
 from urllib.parse import urlsplit, urlunsplit
+from difflib import SequenceMatcher
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +26,10 @@ class WebContinuationConfig(BaseModel):
 
     # Limita l'accumulo di collegamenti solo euristici.
     max_candidate_pages: int = Field(default=6, ge=1)
+    
+    min_candidate_score: float = Field(default=0.60, ge=0, le=1)
+    direct_body_start_y: float = Field(default=0.40, gt=0, lt=1)
+    lexical_similarity_threshold: float = Field(default=0.12, ge=0, le=1)
 
 
 @dataclass
@@ -107,12 +112,18 @@ class WebArticleContinuationResolver:
         "continuation_from_pdf_page",
         "continuation_evidence",
         "continuation_local_role",
+        "web_continuation_score",
+        "web_continuation_components",
+        "web_continuation_contradictions"
     }
 
     def __init__(self, config: WebContinuationConfig | None = None) -> None:
         self.config = config or WebContinuationConfig()
+        self.decisions: list[dict] = []
 
     def enrich_document(self, pages: list[PageRecord]) -> list[PageRecord]:
+        self.decisions = []
+                
         # Rimuove esclusivamente i risultati prodotti da questo componente.
         for page in pages:
             for region in page.regions:
@@ -121,10 +132,7 @@ class WebArticleContinuationResolver:
 
         chains: dict[str, Chain] = {}
 
-        for page in sorted(
-            pages,
-            key=lambda item: (item.document_id, item.pdf_page),
-        ):
+        for page in sorted(pages, key=lambda item: (item.document_id, item.pdf_page)):
             if not self.usable_page(page):
                 chains.pop(page.document_id, None)
                 continue
@@ -133,8 +141,7 @@ class WebArticleContinuationResolver:
             titles = [
                 region
                 for region in page.regions
-                if region.type == RegionType.ARTICLE_TITLE
-                and self.eligible(region)
+                if region.type == RegionType.ARTICLE_TITLE and self.eligible(region)
             ]
 
             # Un nuovo titolo avvia una nuova catena, non eredita quella prima.
@@ -171,18 +178,33 @@ class WebArticleContinuationResolver:
                 chains.pop(page.document_id, None)
                 continue
 
-            evidence = self.connection_evidence(chain, page, bodies)
+            score, components, contradictions = self.connection_score(chain, page, bodies)
+            evidence = [key for key, value in components.items() if value > 0]
 
-            if evidence is None:
+            self.decisions.append({
+                "document_id": page.document_id,
+                "from_pdf_page": chain.last.pdf_page,
+                "to_pdf_page": page.pdf_page,
+                "article_candidate_id": chain.candidate_id,
+                "score": score,
+                "components": components,
+                "contradictions": contradictions,
+                "status": "candidate" if score >= self.config.min_candidate_score and not contradictions else "rejected",
+            })
+
+            if contradictions or score < self.config.min_candidate_score:
                 chains.pop(page.document_id, None)
                 continue
-
+            
             self.annotate(
                 page,
                 bodies,
                 chain,
                 previous_page=chain.last.pdf_page,
                 evidence=evidence,
+                score=score,
+                components=components,
+                contradictions=contradictions,
             )
             chain.last = page
             chain.count += 1
@@ -281,84 +303,114 @@ class WebArticleContinuationResolver:
             median(box[2] for box in boxes),
         )
 
-    def connection_evidence(
-        self,
-        chain: Chain,
-        page: PageRecord,
-        bodies: list[Region],
-    ) -> list[str] | None:
+    def connection_score(self, chain: Chain, page: PageRecord, bodies: list[Region]) -> tuple[float, dict[str, float], list[str]]:
+        components: dict[str, float] = {}
+        contradictions: list[str] = []
+
         if page.pdf_page != chain.last.pdf_page + 1:
-            return None
-
+            return 0.0, components, ["non_adjacent_pages"]
         if chain.count >= self.config.max_candidate_pages:
-            return None
+            return 0.0, components, ["maximum_chain_length"]
 
-        # URL diversi sono una contraddizione.
-        # URL uguali non vengono considerati una prova definitiva:
-        # al momento l'estrazione può produrre URL troncati.
+        components["adjacent_pages"] = 0.04
+
         anchor_url = url_key(chain.anchor.source.url)
         current_url = url_key(page.source.url)
+        if anchor_url and current_url:
+            if anchor_url != current_url:
+                contradictions.append("different_article_url")
+            else:
+                components["same_article_url"] = 0.30
 
-        if anchor_url and current_url and anchor_url != current_url:
-            return None
+        anchor_source = normalize_name(chain.anchor.source.name)
+        current_source = normalize_name(page.source.name)
+        if anchor_source and current_source:
+            if anchor_source != current_source:
+                contradictions.append("different_source")
+            else:
+                components["same_source"] = 0.14
+        elif self.header_names(chain.anchor) & self.header_names(page):
+            components["same_source_header"] = 0.10
 
         anchor_date = chain.anchor.source.publication_date
+        current_date = page.source.publication_date
+        if anchor_date and current_date:
+            if anchor_date == current_date:
+                components["same_publication_date"] = 0.08
+            else:
+                components["different_publication_date"] = -0.15
 
-        if (
-            anchor_date is None
-            or page.source.publication_date != anchor_date
-        ):
-            return None
-
-        anchor_name = normalize_name(chain.anchor.source.name)
-        current_name = normalize_name(page.source.name)
-
-        if anchor_name and current_name and anchor_name != current_name:
-            return None
-
-        same_source_name = bool(
-            anchor_name and current_name and anchor_name == current_name
-        )
-        same_header = bool(
-            self.header_names(chain.anchor) & self.header_names(page)
-        )
-
-        if not same_source_name and not same_header:
-            return None
-
-        # Confronta anche con l'anchor per evitare deriva progressiva.
         current_column = self.column(bodies, page)
-
+        compatible = True
         for reference in (chain.anchor, chain.last):
             reference_bodies = self.body_candidates(reference)
-
             if not reference_bodies:
-                return None
+                compatible = False
+                break
 
             reference_column = self.column(reference_bodies, reference)
+            if any(abs(a - b) > self.config.column_edge_tolerance
+                    for a, b in zip(current_column, reference_column)):
+                compatible = False
+                break
 
-            if any(
-                abs(a - b) > self.config.column_edge_tolerance
-                for a, b in zip(current_column, reference_column)
-            ):
-                return None
+        if compatible:
+            components["compatible_main_column"] = 0.16
 
-        return [
-            "adjacent_pdf_pages",
-            "same_source_name" if same_source_name else "same_source_header",
-            "same_publication_date",
-            "compatible_body_column",
-            "no_new_article_title",
+        first_text, _ = self.boundary_text(bodies)
+        first_body_y = min(region.bbox[1] for region in bodies) / page.page_height
+        if first_body_y <= self.config.direct_body_start_y:
+            components["page_starts_with_body"] = 0.12
+
+        previous_bodies = self.body_candidates(chain.last)
+        if previous_bodies:
+            _, last_text = self.boundary_text(previous_bodies)
+            first_letter = next((char for char in first_text if char.isalpha()), None)
+
+            if (last_text and not last_text.endswith((".", "!", "?", "…")) and
+                first_letter is not None and first_letter.islower()):
+                components["syntactic_continuity"] = 0.12
+
+            lexical = self.lexical_continuity(last_text, first_text)
+            if lexical >= self.config.lexical_similarity_threshold:
+                components["lexical_continuity"] = 0.08
+
+        anchor_author = self.author_name(chain.anchor)
+        current_author = self.author_name(page)
+        if anchor_author and current_author and anchor_author == current_author:
+            components["same_author"] = 0.09
+
+        return round(max(0.0, min(sum(components.values()), 1.0)), 4), components, contradictions
+            
+    @staticmethod
+    def author_name(page: PageRecord) -> str | None:
+        authors = [
+            region for region in page.regions
+            if region.type == RegionType.AUTHOR and region.text and not region.exclude_from_article_text
         ]
+        if len(authors) != 1:
+            return None
 
-    def annotate(
-        self,
-        page: PageRecord,
-        bodies: list[Region],
-        chain: Chain,
-        previous_page: int | None,
-        evidence: list[str],
-    ) -> None:
+        name = authors[0].metadata.get("author_resolution", {}).get("name_candidate")
+        return normalize_name(name or authors[0].text)
+
+    @staticmethod
+    def boundary_text(bodies: list[Region]) -> tuple[str, str]:
+        ordered = sorted(bodies, key=lambda region: (region.bbox[1], region.bbox[0]))
+        return (ordered[0].text or "").strip(), (ordered[-1].text or "").strip()
+
+    @staticmethod
+    def lexical_continuity(left: str, right: str) -> float:
+        left_words = re.findall(r"\w{4,}", left.casefold())[-25:]
+        right_words = re.findall(r"\w{4,}", right.casefold())[:25]
+        if not left_words or not right_words:
+            return 0.0
+
+        return SequenceMatcher(None, " ".join(left_words), " ".join(right_words)).ratio()
+
+    def annotate(self, page: PageRecord, bodies: list[Region], chain: Chain, previous_page: int | None, evidence: list[str],
+                    score: float | None = None, components: dict[str, float] | None = None, contradictions: list[str] | None = None) -> None:
+        
         for region in page.regions:
             if not self.eligible(region):
                 continue
@@ -402,6 +454,9 @@ class WebArticleContinuationResolver:
                         "anchor" if previous_page is None else "candidate"
                     ),
                     "continuation_from_pdf_page": previous_page,
+                    "web_continuation_score": score,
+                    "web_continuation_components": components or {},
+                    "web_continuation_contradictions": contradictions or [],
                     "continuation_evidence": list(evidence),
                     "continuation_local_role": local_role,
                 }
