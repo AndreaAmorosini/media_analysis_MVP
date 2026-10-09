@@ -66,6 +66,9 @@ class ArticleDraft(BaseModel):
     assembly_status: Literal["candidate"] = "candidate"
     title: str | None = None
     body: str = ""
+    body_raw: str | None = None
+    body_clean: str | None = None
+    text_normalization: dict = Field(default_factory=dict)
     
     segments: list[DraftSegment] = Field(default_factory=list)
     links: list[FlowLink] = Field(default_factory=list)

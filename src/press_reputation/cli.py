@@ -16,6 +16,8 @@ from press_reputation.config import DocumentProfilingConfig
 from press_reputation.profiling.document_profiler import DocumentProfiler
 from press_reputation.profiling.merge import merge_extraction
 from press_reputation.review_index.parser import ReviewIndexParser
+from press_reputation.reconstruction.article_text_normalizer import ArticleTextNormalizer
+from press_reputation.reconstruction.article_finalizer import ArticleFinalizer
 
 app = typer.Typer()
 console = Console()
@@ -125,9 +127,14 @@ def parse(
     )
     
     drafts = ArticleDraftAssembler().assemble(pages=pages, links=pipeline.flow_links, reading_orders=pipeline.reading_orders)
-    
+    drafts = ArticleTextNormalizer().enrich(drafts, pages)
+    records = ArticleFinalizer().enrich(drafts=drafts, pages=pages, entries=index_entries, matches=pipeline.review_index_matches)
     (flow_dir / "article_drafts.json").write_text(
         json.dumps([draft.model_dump(mode="json") for draft in drafts], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
+    (flow_dir / "article_records.json").write_text(
+        json.dumps([record.model_dump(mode="json") for record in records], indent=2, ensure_ascii=False), encoding="utf-8"
     )
     
     (flow_dir / "review_index_entries.json").write_text(

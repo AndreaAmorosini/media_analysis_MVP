@@ -200,3 +200,17 @@ class NewspaperContinuationConfig(BaseModel):
     index_title_similarity: float = 0.84
 
     max_pdf_page_gap: int = 1
+    
+class ArticleTextNormalizationConfig(BaseModel):
+    max_same_column_gap: float = 30.0
+    max_dropcap_horizontal_gap: float = 18.0
+    min_dropcap_font_ratio: float = 1.6
+    min_paragraph_indent_spaces: int = 2
+
+    accepted_joined_words: set[str] = Field(default_factory=set)
+    max_recorded_actions: int = 200
+    
+class ArticleFinalizationConfig(BaseModel):
+    min_reconstruction_confidence_for_ready: float = 0.65
+    require_source_for_ready: bool = True
+    require_date_for_ready: bool = True
