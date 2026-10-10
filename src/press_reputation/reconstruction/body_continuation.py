@@ -34,8 +34,16 @@ class BodyContinuationResolver:
 
     def allowed_scope(self, region: Region, page: PageRecord) -> bool:
         scope = region.metadata.get("content_scope")
+        if scope in self.BLOCKED_SCOPES:
+            return False
+        if page.page_type != PageType.WEB or scope == "main":
+            return True
 
-        return (scope not in self.BLOCKED_SCOPES and (page.page_type != PageType.WEB or scope == "main"))
+        return (
+            scope == "unknown"
+            and region.metadata.get("continuation_local_role") == "body_fragment_candidate"
+            and bool(region.metadata.get("article_candidate_id"))
+        )
 
     def eligible_candidate(self, region: Region, page: PageRecord) -> bool:
         if (region.type != RegionType.UNKNOWN or not region.text or not self.valid_bbox(region) or region.exclude_from_article_text or
@@ -300,6 +308,15 @@ class BodyContinuationResolver:
 
             if page.page_type == PageType.WEB:
                 candidate.metadata["include_in_main_body"] = True
+                
+            if page.page_type == PageType.WEB and candidate.metadata.get("content_scope") == "unknown":
+                candidate.metadata["content_scope_before_body_recovery"] = "unknown"
+                candidate.metadata["content_scope"] = "main"
+                candidate.metadata["content_scope_reason"] = "article_aware_body_recovery"
+            
+            candidate.metadata["include_in_main_body"] = (
+                page.page_type != PageType.WEB or candidate.metadata.get("content_scope") == "main"
+            )
 
             references.append(candidate)
 

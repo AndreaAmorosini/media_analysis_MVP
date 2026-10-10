@@ -168,6 +168,18 @@ class ArticleClusteringConfig(BaseModel):
 
     max_font_size_ratio_difference: float = 0.25
     max_caption_image_gap_fraction: float = 0.04
+    
+    column_left_tolerance: float = 18.0
+    min_within_column_overlap: float = 0.55
+    max_adjacent_column_gap_fraction: float = 0.07
+    max_column_width_difference_fraction: float = 0.12
+
+    min_previous_column_bottom_fraction: float = 0.78
+    max_next_column_start_after_title_fraction: float = 0.28
+    wide_body_width_ratio: float = 1.55
+
+    min_multicolumn_score: float = 0.72
+    min_multicolumn_margin: float = 0.12
 
 class BodyContinuationConfig(BaseModel):
     min_score: float = 0.70
@@ -214,3 +226,12 @@ class ArticleFinalizationConfig(BaseModel):
     min_reconstruction_confidence_for_ready: float = 0.65
     require_source_for_ready: bool = True
     require_date_for_ready: bool = True
+    
+class TextFragmentRecoveryConfig(BaseModel):
+    max_terminal_overrun: int = 4
+    max_boundary_shift: int = 3
+
+    # Il confronto orig → text si tenta soltanto su
+    # item di dimensioni limitate e molto simili.
+    max_alignment_chars: int = 4000
+    min_alignment_similarity: float = 0.98

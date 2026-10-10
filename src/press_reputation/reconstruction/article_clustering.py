@@ -1,4 +1,5 @@
 from __future__ import annotations
+from statistics import median
 
 import hashlib
 from math import isfinite
@@ -190,6 +191,60 @@ class ArticleClusteringResolver:
             evidence.append("matched_review_index_title")
 
         return min(score, 1.0), evidence
+    
+    def body_columns(self, page: PageRecord) -> list[list[Region]]:
+        bodies = [
+            region for region in page.regions
+            if region.type == RegionType.ARTICLE_BODY and self.eligible(region) and self.valid_box(region)
+        ]
+        if not bodies:
+            return []
+
+        widths = [region.bbox[2] - region.bbox[0] for region in bodies]
+        typical_width = median(widths)
+
+        # Sottotitoli o blocchi spanning classificati BODY non devono
+        # fondere tutte le colonne in una sola.
+        narrow = [
+            region for region in bodies
+            if len(bodies) < 3 or region.bbox[2] - region.bbox[0] <= typical_width * self.config.wide_body_width_ratio
+        ]
+
+        columns: list[list[Region]] = []
+        for region in sorted(narrow, key=lambda item: (item.bbox[0], item.bbox[1])):
+            selected = None
+
+            for column in columns:
+                left = median(item.bbox[0] for item in column)
+                right = median(item.bbox[2] for item in column)
+                reference = Region(bbox=[left, 0.0, right, 1.0])
+
+                if (
+                    abs(region.bbox[0] - left) <= self.config.column_left_tolerance
+                    and self.overlap(region, reference) >= self.config.min_within_column_overlap
+                ):
+                    selected = column
+                    break
+
+            if selected is None:
+                columns.append([region])
+            else:
+                selected.append(region)
+
+        return sorted(columns, key=lambda column: median(region.bbox[0] for region in column))
+
+    @staticmethod
+    def column_box(column: list[Region]) -> tuple[float, float, float, float]:
+        return (
+            median(region.bbox[0] for region in column),
+            min(region.bbox[1] for region in column),
+            median(region.bbox[2] for region in column),
+            max(region.bbox[3] for region in column),
+        )
+
+    @staticmethod
+    def column_article_ids(column: list[Region]) -> set[str]:
+        return {region.article_id for region in column if region.article_id}
 
     def choose(self, region: Region, scored: list[tuple[float, str, list[str], str | None]], *, method: str) -> bool:
         ranked = sorted(scored, key=lambda item: (-item[0], item[1]))
@@ -294,6 +349,8 @@ class ArticleClusteringResolver:
                         scored.append((score, article_id, reasons, self.region_id(title)))
 
                 self.choose(body, scored, method="local_body_v1")
+                
+            self.assign_multicolumn(page, matched_titles)
 
             # Un frammento già attribuito a una
             # continuazione web senza titolo su questa
@@ -344,6 +401,43 @@ class ArticleClusteringResolver:
                                 anchor_region_id=link.from_region_id)
 
         return pages
+    
+    def propagate_web_article_metadata(self, pages: list[PageRecord], links: list[FlowLink]) -> None:
+        page_index = {(page.document_id, page.pdf_page): page for page in pages}
+
+        for link in links:
+            if link.method != "boundary_rules_v1" or link.status not in {"accepted", "candidate"}:
+                continue
+
+            anchor = page_index.get((link.document_id, link.from_pdf_page))
+            current = page_index.get((link.document_id, link.to_pdf_page))
+            if anchor is None or current is None:
+                continue
+
+            name = anchor.source.name
+            date = anchor.source.publication_date
+            url = anchor.source.url
+
+            if name and current.source.name and current.source.name != name:
+                continue
+            if date and current.source.publication_date and current.source.publication_date != date:
+                continue
+            if url and current.source.url and current.source.url != url:
+                continue
+
+            for region in current.regions:
+                if ((region.article_id == link.article_candidate_id or
+                        region.metadata.get("article_candidate_id") == link.article_candidate_id)
+                    and self.eligible(region)):
+                    
+                    region.metadata["article_metadata_prior"] = {
+                        "source": name,
+                        "publication_date": date.isoformat() if date else None,
+                        "url": url,
+                        "from_pdf_page": anchor.pdf_page,
+                        "link_status": link.status,
+                        "method": "linked_web_page_prior",
+                    }
 
     def assign_recovered_body(self, page: PageRecord) -> PageRecord:
         # BodyContinuationResolver assegna l'ID durante UNKNOWN → BODY.
@@ -437,3 +531,218 @@ class ArticleClusteringResolver:
             self.choose(caption, list(best_by_article.values()), method="caption_media_v1")
 
         return page
+    
+    def competing_title_in_column(self, page: PageRecord, article_id: str, column: list[Region]) -> bool:
+        box = self.column_box(column)
+        reference = Region(bbox=[box[0], box[1], box[2], box[3]])
+
+        return any(
+            title.type == RegionType.ARTICLE_TITLE
+            and title.article_id and title.article_id != article_id and
+            title.metadata.get("title_role") not in {"not_main", "ambiguous"} and self.valid_box(title) and
+            title.bbox[1] <= box[1] and title.bbox[3] >= box[3] and self.overlap(title, reference) >= self.config.min_horizontal_overlap
+            for title in page.regions
+        )
+
+    def column_styles_compatible(self, previous: list[Region], following: list[Region]) -> tuple[bool, bool]:
+        before = max(previous, key=lambda region: region.bbox[3])
+        after = min(following, key=lambda region: region.bbox[1])
+
+        before_font = before.style.get("dominant_font")
+        after_font = after.style.get("dominant_font")
+        if before_font and after_font and before_font != after_font:
+            return False, False
+
+        before_size = before.style.get("median_font_size")
+        after_size = after.style.get("median_font_size")
+        if before_size and after_size:
+            difference = abs(before_size - after_size) / max(before_size, after_size)
+            if difference > self.config.max_font_size_ratio_difference:
+                return False, False
+            return True, True
+
+        # Stile OCR assente: non è evidenza negativa né positiva.
+        return True, bool(before_font and after_font)
+
+    def adjacent_column_score(self, page: PageRecord, previous: list[Region], following: list[Region], article_id: str,
+                                title: Region | None, has_index_match: bool) -> tuple[float, list[str]]:
+        if not page.page_width or not page.page_height:
+            return 0.0, ["missing_page_dimensions"]
+
+        left = self.column_box(previous)
+        right = self.column_box(following)
+        horizontal_gap = (right[0] - left[2]) / page.page_width
+        width_difference = abs((left[2] - left[0]) - (right[2] - right[0])) / page.page_width
+
+        if not 0 <= horizontal_gap <= self.config.max_adjacent_column_gap_fraction:
+            return 0.0, ["columns_not_adjacent"]
+        if width_difference > self.config.max_column_width_difference_fraction:
+            return 0.0, ["different_column_width"]
+        if self.competing_title_in_column(page, article_id, following):
+            return 0.0, ["competing_title_in_target_column"]
+        if self.column_article_ids(following) - {article_id}:
+            return 0.0, ["target_column_has_other_article"]
+
+        compatible_style, style_evidence = self.column_styles_compatible(previous, following)
+        if not compatible_style:
+            return 0.0, ["incompatible_body_style"]
+
+        # La colonna precedente deve arrivare nella parte bassa:
+        # non basta che due colonne siano semplicemente vicine.
+        if left[3] / page.page_height < self.config.min_previous_column_bottom_fraction:
+            return 0.0, ["previous_column_not_near_bottom"]
+
+        if title is not None:
+            if right[1] < title.bbox[3]:
+                return 0.0, ["target_starts_inside_title"]
+            if (
+                (right[1] - title.bbox[3]) / page.page_height
+                > self.config.max_next_column_start_after_title_fraction
+            ):
+                return 0.0, ["target_starts_too_far_from_article_header"]
+
+        score = 0.72
+        evidence = [
+            "adjacent_editorial_columns",
+            "previous_column_reaches_page_bottom",
+            "target_starts_in_article_area",
+            "no_competing_title",
+        ]
+
+        if style_evidence:
+            score += 0.10
+            evidence.append("compatible_body_style")
+        if has_index_match:
+            score += 0.04
+            evidence.append("matched_review_index_title")
+
+        return min(score, 1.0), evidence
+    
+    def assign_multicolumn(self, page: PageRecord, matched_titles: set[tuple[int, str | None]]) -> PageRecord:
+        columns = self.body_columns(page)
+        if len(columns) < 2:
+            return page
+
+        titles = {
+            region.article_id: region
+            for region in page.regions
+            if (
+                region.type == RegionType.ARTICLE_TITLE
+                and region.article_id
+                and self.valid_box(region)
+                and region.metadata.get("title_role") not in {"not_main", "ambiguous"}
+            )
+        }
+
+        # Iterativo: dopo 1 → 2, la colonna 2 può sostenere 2 → 3.
+        for _ in range(len(columns)):
+            changed = False
+
+            for index in range(1, len(columns)):
+                target = columns[index]
+                if self.column_article_ids(target):
+                    continue
+
+                proposals: list[tuple[float, str, list[str], str | None]] = []
+
+                for source_index in (index - 1, index + 1):
+                    if not 0 <= source_index < len(columns):
+                        continue
+
+                    source = columns[source_index]
+                    source_ids = self.column_article_ids(source)
+                    if len(source_ids) != 1:
+                        continue
+
+                    article_id = next(iter(source_ids))
+                    title = titles.get(article_id)
+
+                    # Si usa una transizione sinistra → destra.
+                    if source_index > index:
+                        continue
+
+                    score, evidence = self.adjacent_column_score(
+                        page, source, target, article_id, title,
+                        bool(title and (page.pdf_page, self.region_id(title)) in matched_titles),
+                    )
+                    if score:
+                        proposals.append((score, article_id, evidence, self.region_id(title) if title else None))
+
+                proposals.sort(key=lambda item: (-item[0], item[1]))
+                if not proposals:
+                    continue
+
+                best_score, article_id, evidence, anchor_id = proposals[0]
+                second_score = proposals[1][0] if len(proposals) > 1 else 0.0
+
+                if (best_score < self.config.min_multicolumn_score or best_score - second_score < self.config.min_multicolumn_margin):
+                    for region in target:
+                        if region.article_id is None:
+                            region.metadata["multicolumn_candidates"] = [
+                                {"article_id": candidate_id, "score": round(candidate_score, 4)}
+                                for candidate_score, candidate_id, _, _ in proposals[:3]
+                            ]
+                    continue
+
+                for region in target:
+                    if region.article_id is not None:
+                        continue
+
+                    previous_attempt = region.metadata.get("article_clustering")
+                    if previous_attempt and previous_attempt.get("status") == "ambiguous":
+                        region.metadata.setdefault("article_clustering_attempts", []).append(previous_attempt)
+
+                    if self.assign(
+                        region, article_id, method="adjacent_body_column_v1",
+                        score=best_score, evidence=evidence, anchor_region_id=anchor_id,
+                    ):
+                        region.metadata["clustering_column"] = {
+                            "page": page.pdf_page,
+                            "left": round(self.column_box(target)[0], 2),
+                            "right": round(self.column_box(target)[2], 2),
+                            "membership_method": "adjacent_body_column_v1",
+                        }
+                        changed = True
+
+            if not changed:
+                break
+
+        return page
+    
+    def detach_rejected_web_pages(self, pages: list[PageRecord], links: list[FlowLink]) -> None:
+        for link in sorted(links, key=lambda item: (item.document_id, item.article_candidate_id, item.to_pdf_page)):
+            if link.method != "boundary_rules_v1" or link.status != "rejected":
+                continue
+
+            old_id = link.article_candidate_id
+            new_id = f"{old_id}:from_page_{link.to_pdf_page:03d}"
+
+            for page in pages:
+                if page.document_id != link.document_id or page.pdf_page < link.to_pdf_page:
+                    continue
+
+                for region in page.regions:
+                    if region.article_id != old_id and region.metadata.get("article_candidate_id") != old_id:
+                        continue
+
+                    region.metadata["article_id_before_rejected_flow"] = old_id
+                    region.metadata["detached_by_flow"] = {
+                        "from_pdf_page": link.from_pdf_page,
+                        "to_pdf_page": link.to_pdf_page,
+                        "reason": list(link.contradictions),
+                    }
+                    if region.article_id == old_id:
+                        region.article_id = new_id
+                    if region.metadata.get("article_candidate_id") == old_id:
+                        region.metadata["article_candidate_id"] = new_id
+
+            # I link interni alla componente destra devono usare
+            # lo stesso ID delle regioni ora separate.
+            for following in links:
+                if (
+                    following is not link
+                    and following.document_id == link.document_id
+                    and following.article_candidate_id == old_id
+                    and following.from_pdf_page >= link.to_pdf_page
+                ):
+                    following.article_candidate_id = new_id

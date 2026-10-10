@@ -110,28 +110,6 @@ class ArticleFlowResolver:
                     links.append(link)
                     continue
 
-                # if (
-                #     previous.source.publication_date is not None
-                #     and page.source.publication_date is not None
-                #     and previous.source.publication_date
-                #     != page.source.publication_date
-                # ):
-                #     link.status = "rejected"
-                #     link.contradictions.append("different_publication_dates")
-                #     links.append(link)
-                #     continue
-
-                # source_evidence = {
-                #     "same_source_header", "same_source_name"
-                # } & set(evidence)
-
-                # if (
-                #     not self.REQUIRED_EVIDENCE.issubset(evidence)
-                #     or not source_evidence
-                # ):
-                #     links.append(link)
-                #     continue
-
                 left_regions = self.flow_regions(previous, candidate_id)
                 right_regions = self.flow_regions(page, candidate_id)
 
@@ -145,22 +123,6 @@ class ArticleFlowResolver:
 
                 link.from_region_id = left.metadata.get("region_id")
                 link.to_region_id = right.metadata.get("region_id")
-
-                # if self.compatible_sentence_boundary(
-                #     left, right, previous, page
-                # ):
-                #     link.status = "accepted"
-                #     link.evidence.extend([
-                #         "unfinished_sentence_at_page_end",
-                #         "compatible_lowercase_start",
-                #         "aligned_boundary_regions",
-                #     ])
-
-                #     # Recupero limitato ai due frammenti del collegamento.
-                #     self.recover_fragment(left)
-                #     self.recover_fragment(right)
-
-                # links.append(link)
                 
                 base_score = max(
                     (region.metadata.get("web_continuation_score") or 0.0)
@@ -191,6 +153,17 @@ class ArticleFlowResolver:
                         link.evidence.append("strong_sentence_boundary")
                         self.recover_fragment(left)
                         self.recover_fragment(right)
+                        
+                if score >= self.config.min_web_accept_score and len(independent) >= self.config.min_independent_signals:
+                    link.status = "accepted"
+                    link.evidence.append("evidence_score_accepted")
+
+                    if boundary:
+                        link.evidence.append("strong_sentence_boundary")
+                        self.recover_fragment(left)
+                        self.recover_fragment(right)
+
+                links.append(link)
 
         return links
 

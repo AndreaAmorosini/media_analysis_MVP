@@ -41,11 +41,6 @@ class ArticleDraftAssembler:
             candidate_links = [link for link in links if link.document_id == document_id and
                                 link.article_candidate_id == article_id]
 
-            # Non assemblare una catena contenente una contraddizione.
-            # La suddivisione automatica in sottocatene è un passo separato.
-            if any(link.status == "rejected" for link in candidate_links):
-                continue
-
             titles = [region.text for _, region in members if region.type == RegionType.ARTICLE_TITLE and region.text]
             
             order_record = (reading_orders.get((document_id, article_id)) if reading_orders is not None else None)
@@ -128,6 +123,8 @@ class ArticleDraftAssembler:
                     warnings.append(
                         f"Unresolved continuation: {link.from_pdf_page} -> {link.to_pdf_page}"
                     )
+                elif link.status == "rejected":
+                    warnings.append(f"Rejected continuation: {link.from_pdf_page} -> {link.to_pdf_page}")
 
             warnings.append("Draft body includes candidate regions; not approved for automatic reputation scoring")
 

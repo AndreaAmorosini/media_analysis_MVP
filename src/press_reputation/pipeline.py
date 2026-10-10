@@ -90,7 +90,9 @@ class PageProcessingPipeline:
             self.header_zone_detector.enrich(page)
             self.article_semantic_classifier.enrich(page)
             self.metadata_extractor.enrich(page)
+            page.page_type = self.page_classifier.classify(page)
             
+        self.web_article_continuation_resolver.mark_continuation_priors(pages)
         self.title_resolver.resolve(pages, entries=review_index_entries)
         for page in pages:
             self.subtitle_resolver.enrich(page)
@@ -114,6 +116,8 @@ class PageProcessingPipeline:
         
         self.flow_links = self.article_flow_resolver.resolve(pages)
         self.article_clustering_resolver.link_accepted_flows(pages, self.flow_links)
+        self.article_clustering_resolver.detach_rejected_web_pages(pages, self.flow_links)
+        self.article_clustering_resolver.propagate_web_article_metadata(pages, self.flow_links)
         
         newspaper_links = self.newspaper_continuation_resolver.resolve(pages, entries=review_index_entries, matches=self.review_index_matches)
         self.flow_links.extend(newspaper_links)

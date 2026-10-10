@@ -58,6 +58,10 @@ class ArticleSemanticClassifier:
     
     def classify(self, region: Region, page: PageRecord, features: RegionFeatures, *, body_font_size: float = None) -> RegionType:
         #L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
+        recovery = region.metadata.get("text_fragment_recovery", {})
+        if recovery.get("auto_classification_allowed") is False:
+            return region.type
+        
         if (region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or 
                 region.type in MetadataSeedClassifier.SEED_TYPES):
             return region.type

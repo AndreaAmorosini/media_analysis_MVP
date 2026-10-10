@@ -68,6 +68,10 @@ class TitleResolver:
                 
                 if region.type != RegionType.ARTICLE_TITLE:
                     region.metadata["type_before_title_resolution"] = (region.type.value)
+                    if (region.raw_label == "section_header" and self.follows_body_in_same_column(region, page) and not index_entry_id):
+                        region.metadata["title_candidate_veto"] = "heading_after_body"
+                        region.metadata["deferred_section_header_candidate"] = True
+                        continue
                     region.type = RegionType.ARTICLE_TITLE
                     
                 region.metadata["title_role"] = "candidate"
@@ -127,8 +131,8 @@ class TitleResolver:
             return False
         
         for other in page.regions:
-            if (other is region or not other.bbox or other.exclude_from_article_text or
-                other.metadata.get("in_header_metadata_zone")):
+            if (other is region or other.type not in {RegionType.AUTHOR, RegionType.ARTICLE_SUBTITLE} or not other.bbox or
+                other.exclude_from_article_text or other.metadata.get("in_header_metadata_zone")):
                 continue
             
             gap = min(abs(other.bbox[1] - region.bbox[3]), abs(region.bbox[1] - other.bbox[3]))
@@ -172,7 +176,9 @@ class TitleResolver:
         title_size = features.median_font_size
         if title_size and body_size and body_size > 0:
             ratio = title_size / body_size
-            components["relative_font_size"] = (0.22 * min(max(ratio - 1.0, 0.0) / (self.config.relative_font_size_full_score - 1.0),1.0))
+            prominence = min(max(ratio - 1.0, 0.0) / (self.config.relative_font_size_full_score - 1.0), 1.0)
+            if prominence > 0:
+                components["relative_font_size"] = 0.22 * prominence
 
         if (features.bold_ratio is not None and features.bold_evidence_fraction >= self.config.bold_min_evidence_fraction):
             components["bold"] = 0.12 * features.bold_ratio
@@ -198,11 +204,21 @@ class TitleResolver:
                 components["review_index_title"] = (0.30 * similarity)
                 best_entry_id = entry.id
 
-        # Una regione che sembra body non diventa titolo sulla
-        # sola base di posizione/larghezza.
-        if (region.type == RegionType.ARTICLE_BODY and "relative_font_size" not in components and "review_index_title" not in components):
-            components.clear()
-
+        index_similarity = max((title_similarity(region.text or "", entry.title) for entry in entries), default=0.0)
+        strong_index_title = index_similarity >= 0.84
+        font_prominence = components.get("relative_font_size", 0.0)
+        
+        if region.type == RegionType.ARTICLE_BODY:
+            accepted_body_seed = region.metadata.get("body_seed_evaluation", {}).get("accepted") is True
+            
+            if accepted_body_seed and features.word_count >= 35 and not strong_index_title:
+                region.metadata["title_candidate_veto"] = "accepted_long_body_seed"
+                return {}, None
+            
+            if not strong_index_title and font_prominence < 0.12:
+                region.metadata["title_candidate_veto"] = "body_without_title_prominence"
+                return {}, None
+        
         return components, best_entry_id
     
     def consolidate_candidates(self, pages: list[PageRecord]) -> None:
@@ -247,3 +263,10 @@ class TitleResolver:
                     }
                     else RegionType.UNKNOWN
                 )
+                
+    def follows_body_in_same_column(self, region: Region, page: PageRecord) -> bool:
+        return any(
+            other is not region and other.type == RegionType.ARTICLE_BODY and other.bbox and not other.exclude_from_article_text and
+            other.bbox[3] <= region.bbox[1] and self.horizontal_overlap(region, other) >= self.config.min_horizontal_overlap
+            for other in page.regions
+        )

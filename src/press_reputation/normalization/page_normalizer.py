@@ -5,13 +5,16 @@ from press_reputation.models.page import (PageRecord, Region, RegionType)
 from press_reputation.classification.boilerplate_detector import DocumentBoilerplateDetector
 from press_reputation.classification.header_metadata_zone import HeaderMetadataZoneDetector
 from press_reputation.reconstruction import BodyContinuationResolver
-from press_reputation.normalization.text_fragment import split_text_by_provenance
+from press_reputation.normalization.text_fragment import TextFragmentRecovery
 from press_reputation.profiling.models import ExtractionMethod
 
 logger = logging.getLogger(__name__)
 
 class PageNormalizer:
     #Converte DoclingDocument in un formato interno PageRecord (in models)
+    
+    def __init__(self) -> None:
+        self.text_recovery = TextFragmentRecovery()
     
     def normalize(self, document: Any, document_id: str, extraction_method: ExtractionMethod = "unknown") -> list[PageRecord]:
         doc_dict = self._to_dict(document)
@@ -96,84 +99,116 @@ class PageNormalizer:
                     continue
                 pages[page_no].regions.append(region)
                 
-    def _normalize_item(self, item: dict[str, Any], collection_name: str, doc_dict: dict[str, Any], extraction_method: ExtractionMethod) -> list[tuple[int, Region]]:
-        label = item.get("label")
-        self_ref = item.get("self_ref")
+    def _normalize_item(self, item: dict[str, Any], collection_name: str, doc_dict: dict[str, Any],
+                        extraction_method: ExtractionMethod) -> list[tuple[int, Region]]:
+        
+        label, self_ref = item.get("label"), item.get("self_ref")
         provenances = item.get("prov") or []
-        
         region_type = self._map_region_type(label=label, collection_name=collection_name)
-        
+
         if not provenances:
             logger.warning("Item without page provenance: retained in raw output: %s", self_ref)
             return []
-        
-        fragments, warnings = split_text_by_provenance(item=item)
-        
-        for warning in warnings:
-            logger.warning("Text normalization warning for item %s: %s", self_ref, warning)
-            
+
+        recovery = self.text_recovery.recover(item)
+        for warning in recovery.warnings:
+            logger.warning("Text recovery warning for item %s: %s", self_ref, warning)
+
         regions: list[tuple[int, Region]] = []
-        unmapped_text_saved = False
-        
+        source_text_saved = False
+
         for fragment_index, provenance in enumerate(provenances):
-            page_no = provenance.get("page_no")
-            
-            if page_no is None:
-                logger.warning("Provenance without page number for item=%s fragment=%s", self_ref, fragment_index)
-                
-            page_no = int(page_no)
-            
-            bbox = self._normalize_bbox(raw_bbox=provenance.get("bbox"), page_no=page_no, doc_dict=doc_dict)
-            
+            page_value = provenance.get("page_no")
+            if page_value is None:
+                logger.warning("Provenance without page number: item=%s fragment=%s", self_ref, fragment_index)
+                continue
+
+            try:
+                page_no = int(page_value)
+            except (TypeError, ValueError):
+                logger.warning("Invalid page number: item=%s fragment=%s page=%r", self_ref, fragment_index, page_value)
+                continue
+
+            fragment = recovery.fragments[fragment_index]
+            bbox = self._normalize_bbox(provenance.get("bbox"), page_no, doc_dict)
             metadata: dict[str, Any] = {"source_fragment_index": fragment_index}
-            
+
             if collection_name == "tables":
                 data = item.get("data") or {}
-                metadata["table_shape"] = {
-                    "rows": data.get("num_rows"),
-                    "columns": data.get("num_cols"),
-                }
+                metadata["table_shape"] = {"rows": data.get("num_rows"), "columns": data.get("num_cols")}
                 metadata["table_ref"] = self_ref
-            
+
             if self_ref:
-                metadata["region_id"] = (f"{self_ref}:page={page_no}:fragment={fragment_index}")
-                
-            if warnings:
-                metadata["normalization_warnings"] = list(warnings)
-                #Conserva il testo non associabile solo una volta evitando duplicazioni
-                if not unmapped_text_saved:
-                    metadata["unmapped_source_text"] = item.get("text")
-                    unmapped_text_saved = True
-                    
+                metadata["region_id"] = f"{self_ref}:page={page_no}:fragment={fragment_index}"
+
+            if fragment.status != "exact" or fragment.warnings:
+                metadata["text_fragment_recovery"] = {
+                    "status": fragment.status,
+                    "confidence": fragment.confidence,
+                    "raw_charspan": fragment.raw_charspan,
+                    "effective_charspan": fragment.effective_charspan,
+                    "warnings": fragment.warnings,
+                    "auto_classification_allowed": fragment.status in {
+                        "offset_adjusted", "realigned", "single_provenance",
+                    },
+                }
+
+            if recovery.warnings and not source_text_saved:
+                metadata["unmapped_source_text"] = recovery.source_text
+                source_text_saved = True
+
             region_method: ExtractionMethod = (
-                extraction_method if isinstance(fragments[fragment_index], str) and collection_name != "pictures" else "unknown"
+                extraction_method
+                if fragment.text is not None and collection_name != "pictures"
+                else "unknown"
             )
-                    
-            region = Region(
-                type=region_type,
-                text=fragments[fragment_index],
-                bbox=bbox,
-                raw_label=label,
-                metadata=metadata,
-                extraction_method=region_method,
-                provenance=[
-                    {
-                        "self_ref": self_ref,
-                        "collection": collection_name,
-                        "docling_label": label,
-                        "charspan": provenance.get("charspan"),
-                        "raw_bbox": provenance.get("bbox"),
-                        "page": page_no,
-                        "text_field": "text",
-                        "extraction_method": region_method,
-                    }
-                ],
-            )
-            
-            regions.append((page_no, region))
-            
-        return regions
-    
+
+            regions.append((page_no, Region(
+                type=region_type, text=fragment.text, bbox=bbox, raw_label=label,
+                metadata=metadata, extraction_method=region_method,
+                provenance=[{
+                    "self_ref": self_ref, "collection": collection_name,
+                    "docling_label": label, "charspan": provenance.get("charspan"),
+                    "raw_bbox": provenance.get("bbox"), "page": page_no,
+                    "text_field": "text", "extraction_method": region_method,
+                }],
+            )))
+
+        valid_pages = {
+            int(prov["page_no"]) for prov in provenances
+            if prov.get("page_no") is not None and str(prov["page_no"]).isdigit()
+        }
+
+        if len(valid_pages) == 1 and recovery.source_text is not None:
+            page_no = next(iter(valid_pages))
+
+            for start, end in recovery.unmapped_intervals:
+                candidate_text = recovery.source_text[start:end]
+                if not candidate_text.strip():
+                    continue
+
+                regions.append((page_no, Region(
+                    type=RegionType.UNKNOWN, text=candidate_text, bbox=None, raw_label=label,
+                    extraction_method=extraction_method,
+                    metadata={
+                        "region_id": f"{self_ref}:page={page_no}:unmapped={start}-{end}",
+                        "recovery_parent_ref": self_ref,
+                        "text_fragment_recovery": {
+                            "status": "ambiguous",
+                            "source_interval": [start, end],
+                            "auto_classification_allowed": False,
+                            "warnings": recovery.warnings,
+                        },
+                    },
+                    provenance=[{
+                        "self_ref": self_ref, "collection": collection_name,
+                        "docling_label": label, "charspan": prov.get("charspan"),
+                        "raw_bbox": prov.get("bbox"), "page": page_no,
+                        "extraction_method": extraction_method, "recovery_candidate": True,
+                    } for prov in provenances],
+                )))
+
+        return regions    
     
     def _map_region_type(self, label: str | None, collection_name: str) -> RegionType:
         

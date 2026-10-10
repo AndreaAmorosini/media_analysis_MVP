@@ -313,6 +313,19 @@ class WebArticleContinuationResolver:
             return 0.0, components, ["maximum_chain_length"]
 
         components["adjacent_pages"] = 0.04
+        
+        previous_areas = {
+            r.metadata.get("layout_area_id") for r in chain.last.regions
+            if r.metadata.get("content_scope") == "main" and r.metadata.get("layout_area_id")
+        }
+        current_areas = {
+            r.metadata.get("layout_area_id") for r in bodies if r.metadata.get("layout_area_id")
+        }
+        if previous_areas & current_areas:
+            components["same_main_layout_area"] = 0.18
+
+        if any(r.metadata.get("web_continuation_prior", {}).get("from_pdf_page") == chain.last.pdf_page for r in bodies):
+            components["prior_continuation_page"] = 0.08
 
         anchor_url = url_key(chain.anchor.source.url)
         current_url = url_key(page.source.url)
@@ -364,11 +377,12 @@ class WebArticleContinuationResolver:
 
         previous_bodies = self.body_candidates(chain.last)
         if previous_bodies:
-            _, last_text = self.boundary_text(previous_bodies)
+            previous_boundary = self.boundary_regions(chain.last, chain.candidate_id)
+            last_region = max(previous_boundary or previous_bodies, key=lambda region: (region.bbox[3], region.bbox[1]))
+            last_text = (last_region.text or "").strip()
             first_letter = next((char for char in first_text if char.isalpha()), None)
 
-            if (last_text and not last_text.endswith((".", "!", "?", "…")) and
-                first_letter is not None and first_letter.islower()):
+            if last_text and not last_text.endswith((".", "!", "?", "…")) and first_letter and first_letter.islower():
                 components["syntactic_continuity"] = 0.12
 
             lexical = self.lexical_continuity(last_text, first_text)
@@ -381,6 +395,15 @@ class WebArticleContinuationResolver:
             components["same_author"] = 0.09
 
         return round(max(0.0, min(sum(components.values()), 1.0)), 4), components, contradictions
+            
+    def boundary_regions(self, page: PageRecord, candidate_id: str) -> list[Region]:
+        return [
+            region for region in page.regions
+            if (region.text and self.eligible(region) and region.metadata.get("article_candidate_id") == candidate_id and
+                (region.type == RegionType.ARTICLE_BODY or
+                    (region.type == RegionType.UNKNOWN and region.metadata.get("continuation_local_role") == "body_fragment_candidate")
+                ))
+        ]
             
     @staticmethod
     def author_name(page: PageRecord) -> str | None:
@@ -462,28 +485,68 @@ class WebArticleContinuationResolver:
                 }
             )
 
-    def near_body(
-        self,
-        region: Region,
-        bodies: list[Region],
-        page: PageRecord,
-    ) -> bool:
+    def near_body(self, region: Region, bodies: list[Region], page: PageRecord) -> bool:
         candidate_box = box_on_page(region, page)
 
         for body in bodies:
             body_box = box_on_page(body, page)
 
-            gap = max(
-                0.0,
-                candidate_box[1] - body_box[3],
-                body_box[1] - candidate_box[3],
-            )
+            gap = max(0.0, candidate_box[1] - body_box[3], body_box[1] - candidate_box[3])
 
-            if (
-                gap <= self.config.local_neighbor_gap
-                and horizontal_overlap(candidate_box, body_box)
-                >= self.config.minimum_horizontal_overlap
-            ):
+            if (gap <= self.config.local_neighbor_gap and
+                horizontal_overlap(candidate_box, body_box) >= self.config.minimum_horizontal_overlap):
                 return True
 
         return False
+    
+    def mark_continuation_priors(self, pages: list[PageRecord]) -> None:
+        for page in pages:
+            for region in page.regions:
+                region.metadata.pop("web_continuation_prior", None)
+
+        ordered = sorted(pages, key=lambda page: (page.document_id, page.pdf_page))
+        for previous, current in zip(ordered, ordered[1:]):
+            if (
+                previous.document_id != current.document_id
+                or current.pdf_page != previous.pdf_page + 1
+                or not self.usable_page(previous)
+                or not self.usable_page(current)
+            ):
+                continue
+
+            left = [r for r in previous.regions if r.type == RegionType.ARTICLE_BODY and r.text and self.eligible(r)]
+            right = [r for r in current.regions if r.type == RegionType.ARTICLE_BODY and r.text and self.eligible(r)]
+            if not left or not right:
+                continue
+
+            evidence, contradictions = ["adjacent_web_pages"], []
+            left_url, right_url = url_key(previous.source.url), url_key(current.source.url)
+            if left_url and right_url and left_url != right_url:
+                contradictions.append("different_article_url")
+            elif left_url and left_url == right_url:
+                evidence.append("same_article_url")
+
+            if (
+                previous.source.publication_date and current.source.publication_date and 
+                previous.source.publication_date != current.source.publication_date
+            ):
+                contradictions.append("different_publication_date")
+            elif (
+                previous.source.publication_date and previous.source.publication_date == current.source.publication_date):
+                evidence.append("same_publication_date")
+
+            left_column, right_column = self.column(left, previous), self.column(right, current)
+            if all(abs(a - b) <= self.config.column_edge_tolerance for a, b in zip(left_column, right_column)):
+                evidence.append("compatible_body_column")
+
+            if contradictions or len(evidence) < 3:
+                continue
+
+            for region in current.regions:
+                if region.type in {RegionType.UNKNOWN, RegionType.ARTICLE_BODY} and self.eligible(region):
+                    region.metadata["web_continuation_prior"] = {
+                        "from_pdf_page": previous.pdf_page,
+                        "status": "candidate",
+                        "evidence": evidence,
+                        "contradictions": [],
+                    }

@@ -1,8 +1,7 @@
-from difflib import SequenceMatcher
-
 from press_reputation.config import DocumentProfilingConfig
 from press_reputation.models.page import PageRecord, Region
 from press_reputation.profiling.models import DocumentProfile
+from press_reputation.models.page import PageRecord, Region, RegionType
 
 def _overlap(a: list[float], b: list[float]) -> float:
     x0 = max(a[0], b[0])
@@ -16,15 +15,13 @@ def _overlap(a: list[float], b: list[float]) -> float:
     return intersection / min(area_a, area_b)
 
 def _duplicate(candidate: Region, existing: Region, config: DocumentProfilingConfig) -> bool:
-    if (not candidate.text or not existing.text or not candidate.bbox or not existing.bbox):
+    if not candidate.text or not existing.text or not candidate.bbox or not existing.bbox:
         return False
-    
+
     candidate_text = " ".join(candidate.text.casefold().split())
     existing_text = " ".join(existing.text.casefold().split())
-
-    return (_overlap(candidate.bbox, existing.bbox) >= config.duplicate_bbox_overlap and
-            SequenceMatcher(None, candidate_text, existing_text).ratio() >= config.duplicate_text_similarity)
-
+    return (candidate_text == existing_text and _overlap(candidate.bbox, existing.bbox) >= config.duplicate_bbox_overlap)
+    
 def merge_extraction(native_pages: list[PageRecord], ocr_pages: dict[int, PageRecord], profile: DocumentProfile, config: DocumentProfilingConfig) -> list[PageRecord]:
     for page in native_pages:
         page_profile = profile.pages[page.pdf_page]
@@ -32,15 +29,43 @@ def merge_extraction(native_pages: list[PageRecord], ocr_pages: dict[int, PageRe
         
         if ocr_page is not None:
             for region in ocr_page.regions:
-                if not region.text or region.extraction_method != "ocr":
+                recovery = region.metadata.get("text_fragment_recovery", {})
+
+                if region.extraction_method != "ocr":
+                    if recovery and region.type != RegionType.IMAGE:
+                        page.regions.append(region)
                     continue
-                
-                if any(_duplicate(region, existing, config) for existing in page.regions):
+
+                if not region.text:
+                    if recovery:
+                        page.regions.append(region)
                     continue
-                
+
+                duplicate = next(
+                    (existing for existing in page.regions if _duplicate(region, existing, config)),
+                    None,
+                )
+                if duplicate is not None:
+                    duplicate.metadata.setdefault("equivalent_extraction_regions", []).append({
+                        "region_id": region.metadata.get("region_id"),
+                        "extraction_method": "ocr",
+                        "recovery_status": recovery.get("status"),
+                        "provenance": region.provenance,
+                    })
+                    continue
+
                 page.regions.append(region)
                 
-        methods = {region.extraction_method for region in page.regions if region.text and region.text.strip()}
+        methods = {
+            region.extraction_method for region in page.regions
+            if (region.text and region.text.strip() and
+                    region.metadata.get("text_fragment_recovery", {}).get("auto_classification_allowed", True))
+        }
+
+        if any(region.metadata.get("text_fragment_recovery", {}).get("status") == "ambiguous" for region in page.regions):
+            warning = "ocr_text_recovery_candidates_present"
+            if warning not in page_profile.warnings:
+                page_profile.warnings.append(warning)
         
         if {"pdf_text", "ocr"} <= methods:
             page_profile.kind = "mixed"
