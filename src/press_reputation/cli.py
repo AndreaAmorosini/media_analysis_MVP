@@ -126,15 +126,35 @@ def parse(
         json.dumps([link.model_dump(mode="json") for link in pipeline.flow_links], indent=2, ensure_ascii=False), encoding="utf-8"
     )
     
-    drafts = ArticleDraftAssembler().assemble(pages=pages, links=pipeline.flow_links, reading_orders=pipeline.reading_orders)
+    assembler = ArticleDraftAssembler()
+    drafts = assembler.assemble(
+        pages=pages,
+        links=pipeline.flow_links,
+        reading_orders=pipeline.reading_orders,
+    )
     drafts = ArticleTextNormalizer().enrich(drafts, pages)
-    records = ArticleFinalizer().enrich(drafts=drafts, pages=pages, entries=index_entries, matches=pipeline.review_index_matches)
+
+    finalizer = ArticleFinalizer()
+    records = finalizer.enrich(
+        drafts=drafts,
+        pages=pages,
+        entries=index_entries,
+        matches=pipeline.review_index_matches,
+        links=pipeline.flow_links,
+        skipped_groups=assembler.skipped_groups,
+        ocr_documents=extracted.ocr_documents,
+    )
+    
     (flow_dir / "article_drafts.json").write_text(
         json.dumps([draft.model_dump(mode="json") for draft in drafts], indent=2, ensure_ascii=False), encoding="utf-8"
     )
     
     (flow_dir / "article_records.json").write_text(
         json.dumps([record.model_dump(mode="json") for record in records], indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    
+    (flow_dir / "extraction_completeness.json").write_text(
+        json.dumps([report.model_dump(mode="json") for report in finalizer.document_completeness_reports], indent=2, ensure_ascii=False), encoding="utf-8"
     )
     
     (flow_dir / "review_index_entries.json").write_text(

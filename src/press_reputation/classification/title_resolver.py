@@ -25,6 +25,8 @@ class TitleResolver:
         RegionType.WATERMARK,
         RegionType.RIGHTS_NOTICE,
         RegionType.ARTICLE_POSITION_THUMBNAIL,
+        RegionType.ARTICLE_KICKER,
+        RegionType.PULL_QUOTE,
     }
 
     CANDIDATE_TYPES = {
@@ -64,6 +66,14 @@ class TitleResolver:
                 }
                 
                 if total < self.config.min_score:
+                    continue
+                
+                cleanup = region.metadata.get("watermark_text_cleanup") or {}
+                if (cleanup.get("status") == "applied" and cleanup.get("residual_role_hint") == "short_header_candidate" and
+                    index_entry_id is None and self.has_nearby_index_title(region, page, page_entries)):
+                    
+                    region.metadata["title_candidate_veto"] = "watermark_residual_before_index_title"
+                    region.metadata["deferred_editorial_header_candidate"] = True
                     continue
                 
                 if region.type != RegionType.ARTICLE_TITLE:
@@ -106,6 +116,26 @@ class TitleResolver:
         overlap = max(.0, min(a.bbox[2], b.bbox[2]) - max(a.bbox[0], b.bbox[0]))
         width = min(a.bbox[2] - a.bbox[0], b.bbox[2] - b.bbox[0])
         return overlap / width if width > 0 else 0.0
+    
+    def has_nearby_index_title(self, region: Region, page: PageRecord, entries: list[ReviewIndexEntry]) -> bool:
+        if not region.bbox:
+            return False
+
+        for other in page.regions:
+            if (other is region or not other.text or not other.bbox or other.exclude_from_article_text or
+                other.metadata.get("in_header_metadata_zone")):
+                continue
+
+            gap = other.bbox[1] - region.bbox[3]
+            if not 0 <= gap <= self.config.max_competing_title_gap:
+                continue
+            if self.horizontal_overlap(region, other) < self.config.min_horizontal_overlap:
+                continue
+
+            if any(title_similarity(other.text, entry.title) >= self.config.min_competing_index_similarity for entry in entries):
+                return True
+
+        return False
     
     def nearest_body(self, region: Region, page: PageRecord) -> tuple[Region, float] | None:
         if not page.page_height:

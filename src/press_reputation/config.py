@@ -59,6 +59,9 @@ class TitleResolutionConfig(BaseModel):
     max_related_gap_relative: float = 0.10
     min_horizontal_overlap: float = 0.20
     
+    max_competing_title_gap: float = 45.0
+    min_competing_index_similarity: float = 0.84
+    
 class EntityLookupConfig(BaseModel):
     max_entity_text_chars: int = 120
     max_entity_words: int = 10
@@ -90,6 +93,8 @@ class SubtitleResolutionConfig(BaseModel):
     min_style_evidence_fraction: float = 0.50
     max_subtitles_per_title: int = 2
     
+    max_narrative_body_width_ratio: float = 1.55
+    
 class SectionHeaderResolutionConfig(BaseModel):
     max_words: int = 10
     max_text_chars: int = 100
@@ -104,6 +109,8 @@ class SectionHeaderResolutionConfig(BaseModel):
     min_score: float = 0.60
     min_score_for_body_reclassification: float = 0.72
     
+    max_next_gap_with_confirmed_article_id: float = 150.0
+    
 class AuthorResolutionConfig(BaseModel):
     min_name_tokens: int = 2
     max_name_tokens: int = 5
@@ -115,6 +122,9 @@ class AuthorResolutionConfig(BaseModel):
     explicit_min_score: float = 0.70
     author_index_min_similarity: float = 0.92
     min_style_evidence_fraction: float = 0.50
+    
+    max_abbreviated_signature_gap: float = 45.0
+
     
     editorial_heading_phrases: set[str] = Field(
         default_factory=lambda: {
@@ -235,3 +245,36 @@ class TextFragmentRecoveryConfig(BaseModel):
     # item di dimensioni limitate e molto simili.
     max_alignment_chars: int = 4000
     min_alignment_similarity: float = 0.98
+    
+class EditorialHeaderConfig(BaseModel):
+    max_header_gap: float = 55.0
+    min_horizontal_overlap: float = 0.35
+    min_title_score_margin: float = 0.12
+    max_kicker_words: int = 6
+    max_dateline_words: int = 5
+    
+class WatermarkTextCleaningConfig(BaseModel):
+    min_cleaning_score: float = 0.78
+    min_fuzzy_score: float = 0.86
+
+    max_candidate_chars: int = 240
+    max_marker_digits: int = 8
+    min_marker_digits: int = 3
+
+    min_repeated_pages: int = 2
+    max_relative_position_delta: float = 0.045
+    min_native_span_overlap: float = 0.60
+    
+class ExtractionCompletenessConfig(BaseModel):
+    min_body_assignment_coverage_for_ready: float = 0.95
+    min_ocr_text_retention_for_ready: float = 0.97
+
+    max_unassigned_body_chars_for_ready: int = 20
+    max_unmapped_text_chars_for_ready: int = 0
+    max_unresolved_editorial_chars_for_ready: int = 40
+
+    min_duplicate_title_similarity: float = 0.82
+    min_region_candidate_margin: float = 0.12
+
+    # È un alert di incompletezza, non un motivo per inventare body.
+    require_measurement_for_ocr_ready: bool = True

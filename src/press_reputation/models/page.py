@@ -35,6 +35,7 @@ class RegionType(str, Enum):
     ARTICLE_TITLE = "article_title"
     ARTICLE_SUBTITLE = "article_subtitle"
     ARTICLE_BODY = "article_body"
+    ARTICLE_KICKER = "article_kicker"
     AUTHOR = "author"
     
     IMAGE = "image"

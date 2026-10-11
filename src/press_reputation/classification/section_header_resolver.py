@@ -52,15 +52,26 @@ class SectionHeaderResolver:
         before: list[Region] = []
         after: list[Region] = []
         
+        candidate_id = self.identity(candidate)
+        confirmed_heading = bool(candidate_id and candidate.raw_label == "section_header")
+        next_limit = (
+            self.config.max_next_gap_with_confirmed_article_id
+            if confirmed_heading else self.config.max_gap_to_next_body
+        )
+        
         for body in page.regions:
             if (body is candidate or body.type != RegionType.ARTICLE_BODY or not body.bbox or body.exclude_from_article_text or
                 body.metadata.get("content_scope") in self.BLOCKED_SCOPES or self.overlap(body, candidate) < self.config.min_body_horizontal_overlap):
                 continue
             
+            body_id = self.identity(body)
+            if candidate_id and body_id != candidate_id:
+                continue
+            
             if (body.bbox[3] <= candidate.bbox[1] and candidate.bbox[1] - body.bbox[3] <= self.config.max_gap_from_previous_body):
                 before.append(body)
                 
-            if (body.bbox[1] >= candidate.bbox[3] and body.bbox[1] - candidate.bbox[3] <= self.config.max_gap_to_next_body):
+            if (body.bbox[1] >= candidate.bbox[3] and body.bbox[1] - candidate.bbox[3] <= next_limit):
                 after.append(body)
                 
         if not before or not after:

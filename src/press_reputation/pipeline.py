@@ -34,6 +34,9 @@ from press_reputation.reconstruction.article_reading_order import ArticleReading
 from press_reputation.reconstruction.flow_models import ArticleReadingOrder
 from press_reputation.reconstruction.newspaper_continuation import NewspaperContinuationResolver
 from press_reputation.classification.inline_intrusion import InlineIntrusionDetector
+from press_reputation.classification.pull_quote_resolver import PullQuoteResolver
+from press_reputation.classification.editorial_header_resolver import EditorialHeaderResolver
+from press_reputation.classification.watermark_text_cleaner import WatermarkTextCleaner
 
 
 
@@ -44,6 +47,9 @@ class PageProcessingPipeline:
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
         
+        self.watermark_text_cleaner = WatermarkTextCleaner()
+        self.editorial_header_resolver = EditorialHeaderResolver()
+        self.pull_quote_resolver = PullQuoteResolver()
         self.inline_intrusion_detector = InlineIntrusionDetector()
         self.newspaper_continuation_resolver = NewspaperContinuationResolver()
         self.reading_order_resolver = ArticleReadingOrderResolver()
@@ -81,6 +87,8 @@ class PageProcessingPipeline:
 
         if self.enable_boilerplate_detection:
             self.boilerplate_detector.enrich(pages)
+        
+        self.watermark_text_cleaner.enrich(pages, pdf_path=pdf_path)
 
         document_page_counts = Counter(page.document_id for page in pages)
         # Primo passaggio: classificazioni locali e metadata.
@@ -95,6 +103,7 @@ class PageProcessingPipeline:
         self.web_article_continuation_resolver.mark_continuation_priors(pages)
         self.title_resolver.resolve(pages, entries=review_index_entries)
         for page in pages:
+            self.editorial_header_resolver.enrich(page)
             self.subtitle_resolver.enrich(page)
             
         if review_index_entries:
@@ -113,7 +122,9 @@ class PageProcessingPipeline:
         self.web_article_continuation_resolver.enrich_document(pages)
         self.article_clustering_resolver.assign_local(pages, self.review_index_matches)
         self.title_resolver.consolidate_candidates(pages)
-        
+        for page in pages:
+            self.editorial_header_resolver.enrich(page)
+
         self.flow_links = self.article_flow_resolver.resolve(pages)
         self.article_clustering_resolver.link_accepted_flows(pages, self.flow_links)
         self.article_clustering_resolver.detach_rejected_web_pages(pages, self.flow_links)
@@ -126,6 +137,9 @@ class PageProcessingPipeline:
             if self.enable_body_continuation:
                 self.body_resolver.enrich(page)
                 
+            self.author_resolver.recover_abbreviated_signatures(page)
+            self.pull_quote_resolver.enrich(page, pages)
+            
             self.article_clustering_resolver.assign_recovered_body(page)
             self.section_header_resolver.enrich(page)
             self.article_clustering_resolver.assign_section_headers_and_media(page)

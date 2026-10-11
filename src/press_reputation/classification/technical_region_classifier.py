@@ -28,6 +28,10 @@ class TechnicalRegionClassifier:
             
             if region.type in {RegionType.TABLE, RegionType.INFOGRAPHIC, RegionType.PULL_QUOTE, RegionType.IMAGE}:
                 continue
+            
+            if region.type == RegionType.WATERMARK:
+                region.exclude_from_article_text = True
+                continue
 
             if region.type == RegionType.RIGHTS_NOTICE:
                 region.exclude_from_article_text = True

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from press_reputation.config import DocumentBoilerplateConfig
 from press_reputation.models.page import PageRecord, RegionType, Region
+from press_reputation.classification.watermark_text_cleaner import WATERMARK_TEXT_PATTERN
 
 @dataclass(frozen=True)
 class BoilerplateFingerprint:
@@ -86,6 +87,7 @@ class DocumentBoilerplateDetector:
                             region.boilerplate = True
                             region.boilerplate_frequency = frequency
                             
+        self.mark_embedded_watermarks(pages)
         return pages
     
     def text_pattern(self, text: str) -> tuple[str, str] | None:
@@ -173,4 +175,49 @@ class DocumentBoilerplateDetector:
                 return False
             
         return True
+    
+    def mark_embedded_watermarks(self, pages: list[PageRecord]) -> None:
+        groups: dict[str, list[tuple[float, float, PageRecord, Region]]] = defaultdict(list)
+
+        for page in pages:
+            if not page.page_width or not page.page_height:
+                continue
+
+            for region in page.regions:
+                if not region.text or not region.bbox or not WATERMARK_TEXT_PATTERN.search(region.text):
+                    continue
+
+                if any(marker in region.text.casefold() for marker in ("tiratura", "diffusione", "lettori", "dir. resp")):
+                    continue
+
+                x = region.bbox[0] / page.page_width
+                y = region.bbox[1] / page.page_height
+                groups[page.document_id].append((x, y, page, region))
+
+        for candidates in groups.values():
+            clusters: list[list[tuple[float, float, PageRecord, Region]]] = []
+
+            for candidate in sorted(candidates, key=lambda item: (item[2].pdf_page, item[0], item[1])):
+                x, y, _, _ = candidate
+                target = next(
+                    (
+                        cluster for cluster in clusters
+                        if abs(x - cluster[0][0]) <= self.config.max_relative_position_delta
+                        and abs(y - cluster[0][1]) <= self.config.max_relative_position_delta
+                    ),
+                    None,
+                )
+                if target is None:
+                    clusters.append([candidate])
+                else:
+                    target.append(candidate)
+
+            for cluster in clusters:
+                supporting_pages = len({page.pdf_page for _, _, page, _ in cluster})
+                for _, _, _, region in cluster:
+                    region.metadata["embedded_watermark_candidate"] = {
+                        "method": "repeated_substring_position_v1",
+                        "family": "data_stampa",
+                        "supporting_pdf_pages": supporting_pages,
+                    }
         

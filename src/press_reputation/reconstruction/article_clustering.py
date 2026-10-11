@@ -299,6 +299,24 @@ class ArticleClusteringResolver:
                 if parent and parent.article_id:
                     self.assign(region, parent.article_id, method="subtitle_anchor_v1", score=1.0,
                                 evidence=["resolved_title_reference"], anchor_region_id=parent_id)
+                    
+            for region in page.regions:
+                if region.type not in {RegionType.ARTICLE_KICKER, RegionType.LOCATION}:
+                    continue
+
+                header = region.metadata.get("editorial_header_resolution") or {}
+                parent = title_by_region_id.get(header.get("title_region_id"))
+                if not parent or not parent.article_id:
+                    continue
+
+                if region.type == RegionType.LOCATION and region.metadata.get("location_role") != "dateline":
+                    continue
+
+                self.assign(
+                    region, parent.article_id, method="editorial_header_anchor_v1",
+                    score=0.95, evidence=[header.get("method", "resolved_title_reference")],
+                    anchor_region_id=self.region_id(parent),
+                )
 
             header_by_region_id = {
                 self.region_id(region): region

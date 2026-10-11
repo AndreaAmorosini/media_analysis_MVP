@@ -10,6 +10,7 @@ from press_reputation.config import RegionClassificationConfig
 PROTECTED_REGION_TYPES = {
     RegionType.CAPTION,
     RegionType.ARTICLE_POSITION_THUMBNAIL,
+    RegionType.ARTICLE_KICKER
 }
 
 class ArticleSemanticClassifier:

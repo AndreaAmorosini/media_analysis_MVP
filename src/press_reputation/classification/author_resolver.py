@@ -32,6 +32,9 @@ class AuthorResolver:
         "navigation"
     }
     
+    ABBREVIATED_SIGNATURE = re.compile(r"^(?:[A-ZÀ-Ý]\.\s*){2,4}$")
+
+    
     def __init__(self, config: AuthorResolutionConfig | None = None) -> None:
         self.config = config or AuthorResolutionConfig()
         self.features = RegionFeatureExtractor()
@@ -208,4 +211,49 @@ class AuthorResolver:
                 if article_id:
                     region.metadata.setdefault("article_candidate_id", article_id)
                     
+        return page
+    
+    def recover_abbreviated_signatures(self, page: PageRecord) -> PageRecord:
+        for region in page.regions:
+            if (
+                region.type != RegionType.ARTICLE_BODY or not region.article_id
+                or not region.text or not region.bbox or region.exclude_from_article_text
+                or not self.ABBREVIATED_SIGNATURE.fullmatch(region.text.strip())
+            ):
+                continue
+
+            references = [
+                other for other in page.regions
+                if other is not region and other.type == RegionType.ARTICLE_BODY
+                and other.article_id == region.article_id and other.bbox
+                and other.bbox[3] <= region.bbox[1]
+                and self.overlap(region, other) >= self.config.min_horizontal_overlap
+            ]
+            if not references:
+                continue
+
+            previous = max(references, key=lambda other: other.bbox[3])
+            gap = region.bbox[1] - previous.bbox[3]
+            if gap < 0 or gap > self.config.max_abbreviated_signature_gap:
+                continue
+            
+            if any(
+                other is not region and other.type == RegionType.ARTICLE_BODY
+                and other.article_id == region.article_id and other.bbox
+                and other.bbox[1] >= region.bbox[3]
+                and self.overlap(region, other) >= self.config.min_horizontal_overlap
+                for other in page.regions
+            ):
+                continue
+
+            region.metadata["author_resolution"] = {
+                "method": "abbreviated_signature_after_body_v1",
+                "name_candidate": region.text.strip(),
+                "previous_type": region.type.value,
+                "article_id": region.article_id,
+                "previous_body_region_id": previous.metadata.get("region_id"),
+                "gap": gap,
+            }
+            region.type = RegionType.AUTHOR
+
         return page

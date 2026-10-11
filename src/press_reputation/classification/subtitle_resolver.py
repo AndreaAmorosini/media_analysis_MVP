@@ -40,18 +40,23 @@ class SubtitleResolver:
         return True
     
     def body_anchor(self, title: Region, page: PageRecord) -> Region | None:
-        if not title.bbox:
+        bodies = [
+            region for region in page.regions
+            if region.type == RegionType.ARTICLE_BODY and region is not title and region.bbox
+            and not region.exclude_from_article_text and region.bbox[1] >= title.bbox[3]
+            and self.overlap(region, title) >= self.config.min_horizontal_overlap
+        ]
+        if not bodies:
             return None
+
+        widths = [region.bbox[2] - region.bbox[0] for region in bodies]
+        typical_width = median(widths)
+
+        # Un blocco spanning immediatamente sotto il titolo può essere
+        # il sottotitolo, non il primo paragrafo narrativo.
+        narrative = [region for region in bodies if region.bbox[2] - region.bbox[0] <= typical_width * self.config.max_narrative_body_width_ratio]
+        return min(narrative or bodies, key=lambda region: region.bbox[1])
         
-        bodies = [region for region in page.regions if(region.type == RegionType.ARTICLE_BODY and
-                                                        region is not title and region.bbox and not
-                                                        region.exclude_from_article_text and not
-                                                        region.metadata.get("in_header_metadata_zone") and
-                                                        region.bbox[1] >= title.bbox[3] and
-                                                        self.overlap(region, title) >= self.config.min_horizontal_overlap)]
-        
-        return min(bodies, key=lambda region: region.bbox[1], default=None)
-    
     def score(self, candidate: Region, title: Region, page: PageRecord, body: Region | None) -> tuple[float, dict[str, float], str] | None:
         if not candidate.bbox or not title.bbox:
             return None
@@ -135,13 +140,23 @@ class SubtitleResolver:
                 if (candidate is title or not self.eligible(candidate)):
                     continue
                 
-                result = self.score(candidate, title, page, body)
+                candidate_body = body
+                if candidate is body:
+                    alternatives = [
+                        region for region in page.regions
+                        if region is not candidate and region.type == RegionType.ARTICLE_BODY
+                            and region.bbox and region.bbox[1] >= candidate.bbox[3]
+                            and self.overlap(region, title) >= self.config.min_horizontal_overlap
+                    ]
+                    candidate_body = min(alternatives, key=lambda region: region.bbox[1], default=None)
+                
+                result = self.score(candidate, title, page, candidate_body)
                 
                 if result is None:
                     continue
                 
                 score, components, side = result
-                required = (self.config.min_score if body is not None else self.config.min_score_without_body_anchor)
+                required = (self.config.min_score if candidate_body is not None else self.config.min_score_without_body_anchor)
                 if score < required:
                     continue
                 

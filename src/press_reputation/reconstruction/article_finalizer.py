@@ -7,7 +7,14 @@ from press_reputation.models.article import (ArticleRecord, ArticleSource, Extra
 from press_reputation.models.page import PageRecord, PageType, Region, RegionType, SourceType
 from press_reputation.reconstruction.flow_models import ArticleDraft
 from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
-
+from press_reputation.models.article import ArticleRegionRef
+from press_reputation.models.article import (
+    DocumentCompletenessReport,
+    ExtractionCompleteness,
+)
+from press_reputation.config import ExtractionCompletenessConfig
+from press_reputation.reconstruction.extraction_completeness import ExtractionCompletenessAnalyzer
+from press_reputation.reconstruction.flow_models import FlowLink
 
 class ArticleFinalizer:
     MEDIA_TYPES = {
@@ -16,9 +23,12 @@ class ArticleFinalizer:
     }
     BLOCKED_SCOPES = {"related", "advertisement", "navigation", "non_main", "boilerplate"}
 
-    def __init__(self, config: ArticleFinalizationConfig | None = None) -> None:
+    def __init__(self, config: ArticleFinalizationConfig | None = None, completeness_config: ExtractionCompletenessConfig | None = None) -> None:
         self.config = config or ArticleFinalizationConfig()
-
+        self.completeness_config = completeness_config or ExtractionCompletenessConfig()
+        self.completeness_analyzer = ExtractionCompletenessAnalyzer(self.completeness_config)
+        self.document_completeness_reports: list[DocumentCompletenessReport] = []
+    
     @staticmethod
     def region_id(region: Region) -> str | None:
         value = region.metadata.get("region_id")
@@ -80,7 +90,8 @@ class ArticleFinalizer:
             return None
         return distinct[0] if distinct else None
 
-    def finalize(self, draft: ArticleDraft, pages: list[PageRecord], entries: dict[str, ReviewIndexEntry], matches: list[ReviewIndexMatch]) -> ArticleRecord:
+    def finalize(self, draft: ArticleDraft, pages: list[PageRecord], entries: dict[str, ReviewIndexEntry],
+                    matches: list[ReviewIndexMatch], completeness: ExtractionCompleteness | None = None) -> ArticleRecord:
         warnings = list(draft.warnings)
         field_origins: dict[str, str] = {}
         members = self.members(draft, pages)
@@ -171,6 +182,56 @@ class ArticleFinalizer:
             )
             for segment in draft.segments if segment.type == RegionType.ARTICLE_SECTION_HEADER
         ]
+        
+        header_types = {
+            RegionType.ARTICLE_KICKER, RegionType.ARTICLE_TITLE,
+            RegionType.ARTICLE_SUBTITLE, RegionType.AUTHOR,
+        }
+        auxiliary_types = self.MEDIA_TYPES
+
+        article_header: list[ArticleRegionRef] = []
+        article_auxiliary: list[ArticleRegionRef] = []
+
+        for page, region in ordered_members:
+            region_id = self.region_id(region)
+            if not region_id:
+                continue
+
+            ref = ArticleRegionRef(
+                region_id=region_id,
+                pdf_page=page.pdf_page,
+                type=region.type,
+                subrole=(
+                    region.metadata.get("editorial_subrole")
+                    if region.type == RegionType.ARTICLE_KICKER
+                    else region.metadata.get("location_role")
+                    if region.type == RegionType.LOCATION
+                    else None
+                ),
+            )
+
+            if region.type in header_types or (
+                region.type == RegionType.LOCATION
+                and region.metadata.get("location_role") == "dateline"
+            ):
+                article_header.append(ref)
+            elif region.type in auxiliary_types:
+                article_auxiliary.append(ref)
+
+        article_content = [
+            ArticleRegionRef(
+                region_id=segment.region_id,
+                pdf_page=segment.pdf_page,
+                type=segment.type,
+                order=segment.order,
+                body_raw_charspan=segment.article_charspan,
+            )
+            for segment in sorted(
+                draft.segments,
+                key=lambda item: item.order if item.order is not None else 10**9,
+            )
+            if segment.type in {RegionType.ARTICLE_BODY, RegionType.ARTICLE_SECTION_HEADER}
+        ]
 
         media = []
         provenance = []
@@ -260,6 +321,24 @@ class ArticleFinalizer:
             warnings.append("Publication date unavailable")
         if extraction_confidence is None:
             warnings.append("Calibrated extraction confidence unavailable")
+            
+        completeness = completeness or ExtractionCompleteness(
+            status="unknown",
+            reasons=["completeness_not_measured"],
+        )
+        warnings.extend(f"Completeness: {reason}" for reason in completeness.reasons)
+
+        article_uses_ocr = any(
+            page.document_id == draft.document_id
+            and page.pdf_page in draft.pdf_pages
+            and (
+                (page.extraction_profile is not None and page.extraction_profile.run_ocr)
+                or any(region.extraction_method == "ocr" and
+                        (region.article_id or region.metadata.get("article_candidate_id")) == draft.id
+                            for region in page.regions)
+            )
+            for page in pages
+        )
 
         ready = (
             bool(draft.title and body_clean.strip())
@@ -269,6 +348,22 @@ class ArticleFinalizer:
             and reconstruction_confidence >= self.config.min_reconstruction_confidence_for_ready
             and (not self.config.require_source_for_ready or bool(source_name))
             and (not self.config.require_date_for_ready or publication_date is not None)
+            and completeness.status == "complete"
+            and completeness.body_assignment_coverage is not None
+            and completeness.body_assignment_coverage >= self.completeness_config.min_body_assignment_coverage_for_ready
+            and completeness.unassigned_body_chars <= self.completeness_config.max_unassigned_body_chars_for_ready
+            and completeness.unmapped_text_chars <= self.completeness_config.max_unmapped_text_chars_for_ready
+            and completeness.unresolved_editorial_chars <= self.completeness_config.max_unresolved_editorial_chars_for_ready
+            and completeness.incomplete_cross_page_chains == 0
+            and (
+                not article_uses_ocr
+                or not self.completeness_config.require_measurement_for_ocr_ready
+                or completeness.ocr_text_retention is not None
+            )
+            and (
+                completeness.ocr_text_retention is None
+                or completeness.ocr_text_retention >= self.completeness_config.min_ocr_text_retention_for_ready
+            )
         )
         return ArticleRecord(
             id=draft.id, document_id=draft.document_id,
@@ -287,10 +382,85 @@ class ArticleFinalizer:
             finalization_status="ready" if ready else "review_required",
             finalization_warnings=list(dict.fromkeys(warnings)),
             field_origins=field_origins,
+            article_header=article_header,
+            article_content=article_content,
+            article_auxiliary=article_auxiliary,
+            body_clean=body_clean,
+            extraction_completeness=completeness,
         )
 
-    def enrich(self, drafts: list[ArticleDraft], pages: list[PageRecord], entries: list[ReviewIndexEntry], matches: list[ReviewIndexMatch]) -> list[ArticleRecord]:
+    def enrich(self, drafts: list[ArticleDraft], pages: list[PageRecord], entries: list[ReviewIndexEntry],
+                matches: list[ReviewIndexMatch], links: list[FlowLink] | None = None, skipped_groups: list[dict] | None = None,
+                ocr_documents: dict[int, object] | None = None) -> list[ArticleRecord]:
+        
+        self.document_completeness_reports = []
         entries_by_id = {entry.id: entry for entry in entries}
-        return [
-            self.finalize(draft, pages, entries_by_id, matches) for draft in drafts
-        ]
+        links = links or []
+        skipped_groups = skipped_groups or []
+        ocr_documents = ocr_documents or {}
+
+        records: list[ArticleRecord] = []
+        for draft in drafts:
+            completeness = self.completeness_analyzer.for_draft(
+                draft=draft,
+                pages=pages,
+                ocr_documents=ocr_documents,
+                matches=matches,
+            )
+            records.append(
+                self.finalize(
+                    draft=draft,
+                    pages=pages,
+                    entries=entries_by_id,
+                    matches=matches,
+                    completeness=completeness,
+                )
+            )
+
+        document_ids = {
+            *(page.document_id for page in pages),
+            *(entry.document_id for entry in entries),
+            *(record.document_id for record in records),
+        }
+
+        for document_id in sorted(document_ids):
+            report = self.completeness_analyzer.audit_document(
+                document_id=document_id,
+                records=records,
+                pages=pages,
+                entries=entries,
+                links=links,
+                skipped_groups=skipped_groups,
+            )
+            self.document_completeness_reports.append(report)
+
+            # Un possibile duplicato riguarda quei record specifici.
+            duplicate_ids = {
+                article_id
+                for pair in report.possible_duplicate_record_pairs
+                for article_id in (pair["left_id"], pair["right_id"])
+            }
+            for record in records:
+                if record.document_id != document_id or record.id not in duplicate_ids:
+                    continue
+
+                record.finalization_status = "review_required"
+                warning = "Possible duplicate ArticleRecord or split cross-page article"
+                if warning not in record.finalization_warnings:
+                    record.finalization_warnings.append(warning)
+
+            # Un link irrisolto associato al record lo rende non ready.
+            unresolved_ids = {
+                item["article_candidate_id"]
+                for item in report.unresolved_flow_links
+            }
+            for record in records:
+                if record.document_id != document_id or record.id not in unresolved_ids:
+                    continue
+
+                record.finalization_status = "review_required"
+                warning = "Incomplete or unresolved cross-page continuation"
+                if warning not in record.finalization_warnings:
+                    record.finalization_warnings.append(warning)
+
+        return records

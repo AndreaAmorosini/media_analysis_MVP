@@ -13,8 +13,12 @@ class ArticleDraftAssembler:
     BLOCKED_SCOPES = {
         "related", "advertisement", "boilerplate", "non_main", "navigation"
     }
+    
+    def __init__(self) -> None:
+        self.skipped_groups: list[dict] = []
 
     def assemble(self, pages: list[PageRecord], links: list[FlowLink], reading_orders: dict[tuple[str, str], ArticleReadingOrder] | None = None) -> list[ArticleDraft]:
+        self.skipped_groups = []
         groups: dict[tuple[str, str], list[tuple[PageRecord, Region]]] = defaultdict(list)
 
         for page in pages:
@@ -80,6 +84,20 @@ class ArticleDraftAssembler:
                     )
 
             if not any(segment.type == RegionType.ARTICLE_BODY for segment in ordered_segments):
+                self.skipped_groups.append({
+                    "document_id": document_id,
+                    "article_id": article_id,
+                    "pdf_pages": sorted({page.pdf_page for page, _ in members}),
+                    "reason": "no_body_segments",
+                    "body_region_chars": sum(
+                        len(region.text or "") for _, region in members
+                        if region.type == RegionType.ARTICLE_BODY
+                    ),
+                    "region_ids": [
+                        region.metadata.get("region_id") for _, region in members
+                        if region.metadata.get("region_id")
+                    ],
+                })
                 continue
             
             parts: list[str] = []
