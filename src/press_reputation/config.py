@@ -190,6 +190,19 @@ class ArticleClusteringConfig(BaseModel):
 
     min_multicolumn_score: float = 0.72
     min_multicolumn_margin: float = 0.12
+    
+    min_bootstrap_group_score: float = 0.72
+    min_bootstrap_group_margin: float = 0.12
+    min_bootstrap_header_overlap: float = 0.45
+    max_bootstrap_first_body_gap_fraction: float = 0.15
+    min_bootstrap_index_similarity: float = 0.84
+    
+    min_column_continuation_score: float = 0.70
+    min_column_continuation_margin: float = 0.12
+    min_editorial_terminal_fraction: float = 0.70
+    max_target_start_after_header_fraction: float = 0.30
+    max_same_source_charspan_gap: int = 3
+    lexical_boundary_chars: int = 90
 
 class BodyContinuationConfig(BaseModel):
     min_score: float = 0.70

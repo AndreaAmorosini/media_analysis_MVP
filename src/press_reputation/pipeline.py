@@ -139,7 +139,7 @@ class PageProcessingPipeline:
                 
             self.author_resolver.recover_abbreviated_signatures(page)
             self.pull_quote_resolver.enrich(page, pages)
-            
+            self.article_clustering_resolver.recover_column_continuations(page)
             self.article_clustering_resolver.assign_recovered_body(page)
             self.section_header_resolver.enrich(page)
             self.article_clustering_resolver.assign_section_headers_and_media(page)
