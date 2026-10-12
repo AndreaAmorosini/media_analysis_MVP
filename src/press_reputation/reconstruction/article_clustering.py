@@ -1017,6 +1017,43 @@ class ArticleClusteringResolver:
                 ):
                     following.article_candidate_id = new_id
                     
+    def assign_unassigned_body_in_owned_columns(self, page: PageRecord) -> PageRecord:
+        for column in self.body_columns(page):
+            owners = self.column_article_ids(column)
+            if len(owners) != 1:
+                continue
+
+            article_id = next(iter(owners))
+            assigned = [region for region in column if region.article_id == article_id]
+            pending = [region for region in column if region.article_id is None]
+
+            for candidate in sorted(pending, key=lambda region: region.bbox[1]):
+                references = [reference for reference in assigned 
+                                if self.overlap(candidate, reference) >= self.config.min_same_column_body_overlap and
+                                abs(candidate.bbox[0] - reference.bbox[0]) <= self.config.column_left_tolerance and
+                                self.vertical_gap(candidate, reference) <= self.config.max_same_column_body_gap
+                            ]
+                
+                if not references:
+                    continue
+
+                reference = min(references, key=lambda region: self.vertical_gap(candidate, region))
+                if self.title_barrier(page, reference, candidate):
+                    continue
+
+                previous = candidate.metadata.get("article_clustering")
+                if previous and previous.get("status") in {"ambiguous", "unresolved"}:
+                    candidate.metadata.setdefault("article_clustering_attempts", []).append(previous)
+
+                if self.assign(
+                    candidate, article_id, method="owned_column_body_v1",
+                    score=0.90,
+                    evidence=["same_owned_column", "local_body_continuity"],
+                    anchor_region_id=self.region_id(reference),
+                ):
+                    assigned.append(candidate)
+
+        return page
     
     def recover_column_continuations(self, page: PageRecord) -> PageRecord:
         matched_titles = {

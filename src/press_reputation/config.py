@@ -203,6 +203,9 @@ class ArticleClusteringConfig(BaseModel):
     max_target_start_after_header_fraction: float = 0.30
     max_same_source_charspan_gap: int = 3
     lexical_boundary_chars: int = 90
+    
+    min_same_column_body_overlap: float = 0.55
+    max_same_column_body_gap: float = 24.0
 
 class BodyContinuationConfig(BaseModel):
     min_score: float = 0.70
@@ -213,6 +216,9 @@ class BodyContinuationConfig(BaseModel):
 
     max_forward_gap: float = 120.0
     max_vertical_overlap: float = 4.0
+    max_source_charspan_gap: int = 3
+    max_source_column_gap_fraction: float = 0.07
+    min_source_column_score: float = 0.90
 
     min_style_evidence_fraction: float = 0.50
     max_heading_candidate_words: int = 10

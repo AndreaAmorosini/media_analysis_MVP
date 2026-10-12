@@ -5,6 +5,7 @@ from math import isfinite
 from press_reputation.config import BodyContinuationConfig
 from press_reputation.features import RegionFeatureExtractor
 from press_reputation.models.page import PageRecord, PageType, Region, RegionType
+from press_reputation.reconstruction.article_clustering import ArticleClusteringResolver
 
 
 class BodyContinuationResolver:
@@ -153,6 +154,72 @@ class BodyContinuationResolver:
                     return True
 
         return False
+    
+    def crosses_competing_title(self, candidate: Region, reference: Region, page: PageRecord) -> bool:
+        anchor = next(
+            (
+                region for region in page.regions
+                if region.type == RegionType.ARTICLE_TITLE
+                and region.article_id == reference.article_id
+                and self.valid_bbox(region)
+            ),
+            None,
+        )
+        if anchor is None or candidate.bbox[1] < anchor.bbox[3]:
+            return True
+
+        for other in page.regions:
+            if (other is anchor or other.type != RegionType.ARTICLE_TITLE or
+                other.metadata.get("title_role") in {"not_main", "ambiguous"} or not self.valid_bbox(other)):
+                continue
+
+            if (other.article_id != reference.article_id and anchor.bbox[1] <= other.bbox[1] <= candidate.bbox[1] and
+                self.horizontal_overlap(candidate, other) >= self.config.min_horizontal_overlap):
+                return True
+
+        return False
+
+    def cross_column_source_score(self, candidate: Region, reference: Region, page: PageRecord) -> tuple[float, dict[str, float]] | None:
+        if not page.page_width or not reference.article_id:
+            return None
+        if candidate.article_id and candidate.article_id != reference.article_id:
+            return None
+
+        left = ArticleClusteringResolver.source_span(reference)
+        right = ArticleClusteringResolver.source_span(candidate)
+        if left is None or right is None or left[:4] != right[:4]:
+            return None
+
+        char_gap = right[4] - left[5]
+        if not 0 <= char_gap <= self.config.max_source_charspan_gap:
+            return None
+
+        # La prosecuzione va verso la colonna successiva; in Y può
+        # tornare in alto, quindi NON applicare max_vertical_overlap.
+        column_gap = (candidate.bbox[0] - reference.bbox[2]) / page.page_width
+        if not 0 <= column_gap <= self.config.max_source_column_gap_fraction:
+            return None
+
+        if self.crosses_competing_title(candidate, reference, page):
+            return None
+
+        if any(
+            other is not candidate and other is not reference
+            and other.type == RegionType.ARTICLE_BODY
+            and other.article_id and other.article_id != reference.article_id
+            and self.valid_bbox(other)
+            and self.horizontal_overlap(candidate, other) >= self.config.min_horizontal_overlap
+            for other in page.regions
+        ):
+            return None
+
+        components = {
+            "same_extraction_pass_page_and_item": 0.50,
+            "consecutive_effective_charspans": 0.25,
+            "adjacent_column": 0.15,
+        }
+        score = sum(components.values())
+        return score, components
 
     def pair_score(self, candidate: Region, reference: Region, page: PageRecord) -> tuple[float, dict[str, float]] | None:
         if (not reference.article_id or (candidate.article_id and candidate.article_id != reference.article_id)):
@@ -160,6 +227,10 @@ class BodyContinuationResolver:
 
         overlap = self.horizontal_overlap(candidate, reference)
         left_difference = abs(candidate.bbox[0] - reference.bbox[0])
+        
+        source_result = self.cross_column_source_score(candidate, reference, page)
+        if source_result is not None and source_result[0] >= self.config.min_source_column_score:
+            return source_result
 
         if (overlap < self.config.min_horizontal_overlap or left_difference > self.config.max_column_left_difference):
             return None
