@@ -60,6 +60,13 @@ class DoclingParser(DocumentParser):
                     result = self.ocr_converter.convert(temporary_pdf)
                     extracted.ocr_documents[page_number] = result.document
                     page_profile.ocr_status = "completed"
+                except ImportError as exc:
+                    page_profile.ocr_status = "failed"
+                    page_profile.warnings.append(f"ocr_backend_unavailable: {exc}")
+                    raise RuntimeError(
+                        f"Backend OCR RapidOCR non disponibile sulla pagina {page_number}; "
+                        "estrazione interrotta per evitare risultati incompleti."
+                    ) from exc
                 except Exception as e:
                     page_profile.ocr_status = "failed"
                     page_profile.warnings.append(f"ocr_conversion_failed: {e}")
