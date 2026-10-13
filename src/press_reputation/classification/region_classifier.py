@@ -106,7 +106,7 @@ class ArticleSemanticClassifier:
             return RegionType.RELATED_CONTENT
 
         if region.type == RegionType.UNKNOWN:
-            accepted, evidence = self.is_body_seed(region, features, body_font_size=body_font_size)
+            accepted, evidence = self.is_body_seed(region, features, page=page, body_font_size=body_font_size)
             
             if (features.word_count >= self.config.body_seed_min_words and region.raw_label == "text"):
                 region.metadata["body_seed_evaluation"] = {
@@ -332,53 +332,133 @@ class ArticleSemanticClassifier:
             or features.has_share_marker
         )
         
-    def is_body_seed(self, region: Region, features: RegionFeatures, *, body_font_size: float | None) -> tuple[bool, list[str]]:
+
+    def is_body_seed(
+        self,
+        region: Region,
+        features: RegionFeatures,
+        *,
+        page: PageRecord,
+        body_font_size: float | None,
+    ) -> tuple[bool, list[str]]:
+
         evidence = []
-        
-        if(region.type != RegionType.UNKNOWN or region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or
-            region.boilerplate or region.metadata.get("inside_article_position_thumbnail")):
+
+        # 1. Protezioni già esistenti.
+        if (
+            region.type != RegionType.UNKNOWN
+            or region.exclude_from_article_text
+            or region.metadata.get("in_header_metadata_zone")
+            or region.boilerplate
+            or region.metadata.get(
+                "inside_article_position_thumbnail"
+            )
+        ):
             return False, ["protected_or_boilerplate"]
-            
-        if (region.metadata.get("content_scope") in {"related", "advertisement", "boilerplate", "non_main"}):
+
+        # 2. Escludi contenuti editoriali secondari.
+        if region.metadata.get("content_scope") in {
+            "related",
+            "advertisement",
+            "boilerplate",
+            "non_main",
+        }:
             return False, ["external_content_scope"]
-        
-        if (not region.text or region.raw_label != "text" or features.word_count < self.config.body_seed_min_words):
-            return False, ["insufficient_text_or_docling_label"]
-        
-        if (features.has_url or features.has_navigation_marker or features.has_newsletter or features.has_share_marker or features.has_ad_marker or
-            features.has_rights_notice_marker or features.has_watermark_marker):
-            return False, ["navigation_related_or_techinical_marker"]
-        
-        if (features.has_foglio or features.has_surface or features.has_tiratura or features.has_diffusione or features.has_lettori or
-            features.has_dir_resp or ("da pag" in features.raw_text_lower)):
+
+        # 3. Verifica minima del testo.
+        if (
+            not region.text
+            or region.raw_label != "text"
+            or features.word_count
+            < self.config.body_seed_min_words
+        ):
+            return False, [
+                "insufficient_text_or_docling_label"
+            ]
+
+        # 4. Escludi indicatori tecnici e navigation.
+        if (
+            features.has_url
+            or features.has_navigation_marker
+            or features.has_newsletter
+            or features.has_share_marker
+            or features.has_ad_marker
+            or features.has_rights_notice_marker
+            or features.has_watermark_marker
+        ):
+            return False, [
+                "navigation_related_or_techinical_marker"
+            ]
+
+        # 5. FIX: non escludere più automaticamente
+        # un paragrafo che contiene parole come
+        # 'lettori', 'superficie' o 'quotidiano'.
+        #
+        # Utilizza invece lo stesso controllo
+        # strutturale del MetadataSeedClassifier.
+        if (
+            features.has_foglio
+            or "da pag" in features.raw_text_lower
+            or MetadataSeedClassifier._audience_metadata(
+                features,
+                region,
+                page,
+            )
+        ):
             return False, ["clipping_metadata_marker"]
-        
+
+        # 6. Escludi possibili voci di indice.
         if features.like_index_entry:
             return False, ["index_entry_marker"]
-        
-        entity = (region.metadata.get("entity_lookup") or {})
+
+        # 7. Escludi testate e provider.
+        entity = region.metadata.get("entity_lookup") or {}
+
         if entity.get("kind") in {
-            "source", "provider"
+            "source",
+            "provider",
         }:
             return False, ["source_or_provider_match"]
-        
+
+        # 8. Testo prevalentemente maiuscolo:
+        # probabilmente non è body narrativo.
         if features.uppercase_ratio > 0.85:
             return False, ["mostly_uppercase"]
-        
+
+        # 9. Compatibilità tipografica con il body.
         candidate_size = features.median_font_size
-        if (body_font_size and candidate_size and candidate_size > 0):
+
+        if (
+            body_font_size
+            and candidate_size
+            and candidate_size > 0
+        ):
             ratio = candidate_size / body_font_size
-            if not(self.config.body_seed_min_font_ratio <= ratio <= self.config.body_seed_max_font_ratio):
+
+            if not (
+                self.config.body_seed_min_font_ratio
+                <= ratio
+                <= self.config.body_seed_max_font_ratio
+            ):
                 return False, ["font_size_unlike_body"]
+
             evidence.append("body_like_font_size")
+
         else:
             evidence.append("font_size_unavailable")
-            
-        if (features.bold_ratio is not None and features.bold_evidence_fraction >= self.config.body_seed_min_bold_evidence_fraction and
-            features.bold_ratio > self.config.body_seed_max_bold_ratio):
+
+        # 10. Evita testi chiaramente in grassetto.
+        if (
+            features.bold_ratio is not None
+            and features.bold_evidence_fraction
+            >= self.config.body_seed_min_bold_evidence_fraction
+            and features.bold_ratio
+            > self.config.body_seed_max_bold_ratio
+        ):
             return False, ["predominantly_bold"]
-        
+
         evidence.append("no_editorial_or_technical_veto")
+
         return True, evidence
     
     @staticmethod

@@ -45,7 +45,7 @@ class SectionHeader(BaseModel):
     region_id: str
     order: int | None = None
     body_raw_charspan: tuple[int, int] | None = None
-    
+
 class ArticleRegionRef(BaseModel):
     region_id: str
     pdf_page: int
@@ -53,7 +53,7 @@ class ArticleRegionRef(BaseModel):
     order: int | None = None
     body_raw_charspan: tuple[int, int] | None = None
     subrole: str | None = None
-    
+
 class ExtractionCompleteness(BaseModel):
     ocr_text_retention: float | None = None
     body_assignment_coverage: float | None = None
@@ -98,12 +98,17 @@ class ArticleRecord(BaseModel):
     pdf_pages: list[int]
     url: Optional[str] = None
 
+    # Original reconstructed OCR/PDF body, preserved if web HTML wins.
+    body_pdf_raw: str | None = None
+    body_pdf_clean: str | None = None
+    web_retrieval: dict[str, Any] = Field(default_factory=dict)
+
     body_raw: str = ""
     body: str = ""
     section_headers: list[SectionHeader] = Field(default_factory=list)
     media: list[Media] = Field(default_factory=list)
     article_type: Literal["newspaper", "web", "unknown"] = "unknown"
-    
+
     extraction_completeness: ExtractionCompleteness = Field(default_factory=ExtractionCompleteness)
 
     provenance: list[Provenance] = Field(default_factory=list)
@@ -115,7 +120,7 @@ class ArticleRecord(BaseModel):
     finalization_status: Literal["ready", "review_required"] = "review_required"
     finalization_warnings: list[str] = Field(default_factory=list)
     field_origins: dict[str, str] = Field(default_factory=dict)
-    
+
     article_header: list[ArticleRegionRef] = Field(default_factory=list)
     article_content: list[ArticleRegionRef] = Field(default_factory=list)
     article_auxiliary: list[ArticleRegionRef] = Field(default_factory=list)

@@ -136,13 +136,13 @@ class RegionFeatureExtractor:
                 or "promoted" in lower
                 or lower.strip() in {"adv", "ads", "ad"}
             ),
-            has_foglio="foglio" in lower,
-            has_surface="superficie" in lower,
-            has_tiratura="tiratura" in lower,
-            has_diffusione="diffusione" in lower,
-            has_lettori="lettori" in lower,
-            has_dir_resp="dir. resp" in lower or "dir.resp" in lower,
-            has_quotidiano="quotidiano" in lower,
+            has_foglio=bool(re.search(r"\bfoglio\b", lower)),
+            has_surface=bool(re.search(r"\bsuperficie\b", lower)),
+            has_tiratura=bool(re.search(r"\btiratura\b", lower)),
+            has_diffusione=bool(re.search(r"\bdiffusione\b", lower)),
+            has_lettori=bool(re.search(r"\blettori\b", lower)),
+            has_dir_resp=bool(re.search(r"\bdir\.?\s*resp\.?\b", lower)),
+            has_quotidiano=bool(re.search(r"\bquotidiano\b", lower)),
             has_newsletter="newsletter" in lower,
             has_share_marker="condividi" in lower or "twitta" in lower,
             has_related_marker=(

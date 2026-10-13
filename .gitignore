@@ -7,3 +7,5 @@ pixi.lock
 **/__pycache__/
 results/
 .vscode/
+Risultati/
+critical/

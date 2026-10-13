@@ -18,7 +18,9 @@ class RegionClassificationConfig(BaseModel):
 class DocumentProfilingConfig(BaseModel):
     min_native_body_words: int = 30
     min_image_coverage_without_text: float = 0.10
-    min_image_coverage_with_sparse_text: float = 0.35
+    min_image_coverage_with_sparse_text: float = 0.15
+    aggressive_ocr_image_coverage: float = 0.12
+    aggressive_ocr_body_word_limit: int = 120
     
     header_fraction: float = 0.16
     footer_fraction: float = 0.10

@@ -1,0 +1,1 @@
+"""Optional public-HTML article retrieval. PDF/OCR remains the fallback."""

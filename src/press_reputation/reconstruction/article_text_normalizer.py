@@ -136,10 +136,16 @@ class ArticleTextNormalizer:
             )
 
         if left.column != right.column or left.column is None:
+            # Across columns, geometry alone cannot authorize joining text.
+            # Join only an obviously unfinished boundary; never fabricate words.
+            tail = current.rstrip()
             return (
-                not current.rstrip().endswith((".", "!", "?", "…", ":", ";"))
+                left.type == RegionType.ARTICLE_BODY
+                and right.type == RegionType.ARTICLE_BODY
                 and bool(next_line)
-                and next_line[0].islower()
+                and (tail.endswith(("-", "\u2010", "\u00ad"))
+                        or (not tail.endswith((".", "!", "?", "…", ":", ";", "»", '"'))
+                            and next_line[0].islower()))
             )
 
         if not left.bbox or not right.bbox:
