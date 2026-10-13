@@ -30,6 +30,8 @@ class WebContinuationConfig(BaseModel):
     min_candidate_score: float = Field(default=0.60, ge=0, le=1)
     direct_body_start_y: float = Field(default=0.40, gt=0, lt=1)
     lexical_similarity_threshold: float = Field(default=0.12, ge=0, le=1)
+    
+    min_structural_provisional_score: float = Field(default=0.52, ge=0, le=1)
 
 
 @dataclass
@@ -138,11 +140,7 @@ class WebArticleContinuationResolver:
                 continue
 
             bodies = self.body_candidates(page)
-            titles = [
-                region
-                for region in page.regions
-                if region.type == RegionType.ARTICLE_TITLE and self.eligible(region)
-            ]
+            titles = [region for region in page.regions if region.type == RegionType.ARTICLE_TITLE and self.eligible(region)]
 
             # Un nuovo titolo avvia una nuova catena, non eredita quella prima.
             if titles:
@@ -151,24 +149,11 @@ class WebArticleContinuationResolver:
                 if len(titles) != 1 or not bodies:
                     continue
 
-                if not any(
-                    region.metadata.get("content_scope") == "main"
-                    for region in bodies
-                ):
+                if not any(region.metadata.get("content_scope") == "main" for region in bodies):
                     continue
 
-                chain = Chain(
-                    candidate_id=self.make_id(page),
-                    anchor=page,
-                    last=page,
-                )
-                self.annotate(
-                    page,
-                    bodies,
-                    chain,
-                    previous_page=None,
-                    evidence=["local_title_and_main_body"],
-                )
+                chain = Chain(candidate_id=self.make_id(page), anchor=page, last=page)
+                self.annotate(page, bodies, chain, previous_page=None, evidence=["local_title_and_main_body"])
                 chains[page.document_id] = chain
                 continue
 
@@ -180,6 +165,11 @@ class WebArticleContinuationResolver:
 
             score, components, contradictions = self.connection_score(chain, page, bodies)
             evidence = [key for key, value in components.items() if value > 0]
+            structural = self.structural_provisional(components, contradictions, score)
+            candidate = not contradictions and (score >= self.config.min_candidate_score or structural)
+
+            if structural and score < self.config.min_candidate_score:
+                evidence.append("low_confidence_structural_continuation")
 
             self.decisions.append({
                 "document_id": page.document_id,
@@ -189,23 +179,16 @@ class WebArticleContinuationResolver:
                 "score": score,
                 "components": components,
                 "contradictions": contradictions,
-                "status": "candidate" if score >= self.config.min_candidate_score and not contradictions else "rejected",
+                "status": "candidate" if candidate else "rejected",
+                "decision_method": ("structural_provisional_v1" if structural and score < self.config.min_candidate_score else "standard_score_v1")
             })
 
-            if contradictions or score < self.config.min_candidate_score:
+            if not candidate:
                 chains.pop(page.document_id, None)
                 continue
             
-            self.annotate(
-                page,
-                bodies,
-                chain,
-                previous_page=chain.last.pdf_page,
-                evidence=evidence,
-                score=score,
-                components=components,
-                contradictions=contradictions,
-            )
+            self.annotate(page, bodies, chain, previous_page=chain.last.pdf_page, evidence=evidence, 
+                            score=score, components=components, contradictions=contradictions)
             chain.last = page
             chain.count += 1
 
@@ -293,10 +276,7 @@ class WebArticleContinuationResolver:
         return candidates
 
     @staticmethod
-    def column(
-        bodies: list[Region],
-        page: PageRecord,
-    ) -> tuple[float, float]:
+    def column(bodies: list[Region], page: PageRecord) -> tuple[float, float]:
         boxes = [box_on_page(region, page) for region in bodies]
         return (
             median(box[0] for box in boxes),
@@ -395,6 +375,17 @@ class WebArticleContinuationResolver:
             components["same_author"] = 0.09
 
         return round(max(0.0, min(sum(components.values()), 1.0)), 4), components, contradictions
+    
+    def structural_provisional(self, components: dict[str, float], contradictions: list[str], score: float) -> bool:
+        required = {
+            "adjacent_pages", "same_main_layout_area", "prior_continuation_page",
+            "same_publication_date", "compatible_main_column",
+        }
+        return (
+            not contradictions
+            and score >= self.config.min_structural_provisional_score
+            and required.issubset(components)
+        )
             
     def boundary_regions(self, page: PageRecord, candidate_id: str) -> list[Region]:
         return [

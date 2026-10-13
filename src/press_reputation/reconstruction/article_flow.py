@@ -144,8 +144,7 @@ class ArticleFlowResolver:
                 link.to_region_id = right.metadata.get("region_id")
                 link.confidence = round(score, 4)
 
-                if (score >= self.config.min_web_accept_score and
-                    len(independent) >= self.config.min_independent_signals):
+                if (score >= self.config.min_web_accept_score and len(independent) >= self.config.min_independent_signals):
                     link.status = "accepted"
                     link.evidence.append("evidence_score_accepted")
 
@@ -154,15 +153,6 @@ class ArticleFlowResolver:
                         self.recover_fragment(left)
                         self.recover_fragment(right)
                         
-                if score >= self.config.min_web_accept_score and len(independent) >= self.config.min_independent_signals:
-                    link.status = "accepted"
-                    link.evidence.append("evidence_score_accepted")
-
-                    if boundary:
-                        link.evidence.append("strong_sentence_boundary")
-                        self.recover_fragment(left)
-                        self.recover_fragment(right)
-
                 links.append(link)
 
         return links
