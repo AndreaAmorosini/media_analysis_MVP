@@ -25,18 +25,85 @@ class SubtitleResolver:
         
         return shared / narrower if narrower > 0 else 0.0
     
+
+    @staticmethod
+    def body_protection_reason(region: Region) -> str | None:
+        """
+        Impedisce che una regione con evidenze affidabili
+        di body venga promossa a sottotitolo.
+        """
+
+        metadata = region.metadata
+
+        # Evidenza strutturale: la regione appartiene
+        # al body della WebArticleZone.
+        zone = metadata.get("web_article_zone") or {}
+
+        if zone.get("candidate_role") == "body":
+            return "confirmed_web_zone_body"
+
+        # Evidenze ricavate dalla classificazione
+        # semantica del body.
+        if region.type == RegionType.ARTICLE_BODY:
+
+            seed = metadata.get("body_seed_evaluation") or {}
+
+            if seed.get("accepted") is True:
+                return "accepted_body_seed"
+
+            if metadata.get("body_role") == "seed":
+                return "existing_body_seed"
+
+            if (
+                metadata.get("title_candidate_veto")
+                == "accepted_long_body_seed"
+            ):
+                return "protected_long_body"
+
+        return None
+
+    
+
     def eligible(self, region: Region) -> bool:
-        if (region.type not in self.CANDIDATE_TYPES or not (region.text or "").strip() or not region.bbox or len(region.bbox) != 4 or
-            region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or region.metadata.get("inside_article_position_thumbnail")):
+        if (
+            region.type not in self.CANDIDATE_TYPES
+            or not (region.text or "").strip()
+            or not region.bbox
+            or len(region.bbox) != 4
+            or region.exclude_from_article_text
+            or region.metadata.get("in_header_metadata_zone")
+            or region.metadata.get(
+                "inside_article_position_thumbnail"
+            )
+        ):
             return False
-        
-        if region.metadata.get("content_scope") in {"related", "advertisement", "boilerplate", "non_main", "navigation"}:
+
+        if region.metadata.get("content_scope") in {
+            "related",
+            "advertisement",
+            "boilerplate",
+            "non_main",
+            "navigation",
+        }:
             return False
-        
+
         entity = region.metadata.get("entity_lookup") or {}
+
         if entity.get("kind") in {"source", "provider"}:
             return False
-        
+
+        # NEW: rispettare le evidenze che identificano
+        # una regione come contenuto narrativo.
+        veto_reason = self.body_protection_reason(region)
+
+        if veto_reason is not None:
+            region.metadata["subtitle_resolution"] = {
+                "status": "rejected",
+                "reason": veto_reason,
+                "method": "subtitle_resolver_v1",
+            }
+            return False
+
         return True
     
     def body_anchor(self, title: Region, page: PageRecord) -> Region | None:

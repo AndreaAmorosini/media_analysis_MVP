@@ -1,8 +1,15 @@
+import re
+from urllib.parse import urlsplit, unquote
 from statistics import median
 
 from press_reputation.config import TitleResolutionConfig
 from press_reputation.features import RegionFeatureExtractor
-from press_reputation.models.page import PageRecord, Region, RegionType
+from press_reputation.models.page import (
+    PageRecord,
+    PageType,
+    Region,
+    RegionType,
+)
 from press_reputation.review_index.matcher import title_similarity
 from press_reputation.review_index.models import ReviewIndexEntry
 
@@ -300,3 +307,256 @@ class TitleResolver:
             other.bbox[3] <= region.bbox[1] and self.horizontal_overlap(region, other) >= self.config.min_horizontal_overlap
             for other in page.regions
         )
+        
+    
+    def resolve_web_zone_titles(
+        self,
+        pages: list[PageRecord],
+    ) -> None:
+        """
+        Recupera titoli web non riconosciuti usando:
+        - ArticleZone;
+        - body associato alla zona;
+        - score editoriale preesistente;
+        - similarità con lo slug dell'URL.
+
+        Non forza una scelta quando le evidenze
+        sono insufficienti o ambigue.
+        """
+
+        for page in pages:
+            if page.page_type != PageType.WEB:
+                continue
+
+            zones: dict[str, dict[str, list[Region]]] = {}
+
+            for region in page.regions:
+                zone = region.metadata.get("web_article_zone") or {}
+                zone_id = zone.get("zone_id")
+                role = zone.get("candidate_role")
+
+                if not zone_id or role not in {"header", "body"}:
+                    continue
+
+                group = zones.setdefault(
+                    zone_id,
+                    {"header": [], "body": []},
+                )
+                group[role].append(region)
+
+            slug = self._web_url_slug(page)
+
+            for zone_id, group in zones.items():
+                headers = group["header"]
+                bodies = group["body"]
+
+                if not headers or not bodies:
+                    continue
+
+                # Non interferire con un titolo già identificato.
+                if any(
+                    r.type == RegionType.ARTICLE_TITLE
+                    for r in headers
+                ):
+                    continue
+
+                first_body_y = min(
+                    r.bbox[1] for r in bodies if r.bbox
+                )
+
+                scored = []
+
+                for region in headers:
+                    if not self._web_header_eligible(region):
+                        continue
+
+                    text = region.text.strip()
+                    original = region.metadata.get(
+                        "title_candidate"
+                    ) or {}
+
+                    base_score = float(
+                        original.get("score") or 0.0
+                    )
+
+                    similarity = (
+                        title_similarity(text, slug)
+                        if slug else 0.0
+                    )
+
+                    components = {
+                        "base_score": base_score,
+                    }
+
+                    words = text.split()
+
+                    if 3 <= len(words) <= 24:
+                        components["headline_length"] = 0.10
+
+                    if region.bbox:
+                        gap = first_body_y - region.bbox[3]
+
+                        if 0 <= gap <= 120.0:
+                            components["body_zone_context"] = 0.08
+
+                    if similarity >= 0.52:
+                        components["url_slug_similarity"] = (
+                            0.65 * similarity
+                        )
+
+                    total = round(
+                        sum(components.values()), 4
+                    )
+
+                    region.metadata["web_title_evaluation"] = {
+                        "zone_id": zone_id,
+                        "score": total,
+                        "url_similarity": similarity,
+                        "components": components,
+                        "status": "candidate",
+                    }
+
+                    scored.append((total, region, similarity))
+
+                if not scored:
+                    continue
+
+                scored.sort(key=lambda item: item[0], reverse=True)
+
+                best_score, winner, similarity = scored[0]
+
+                second_score = (
+                    scored[1][0]
+                    if len(scored) > 1
+                    else 0.0
+                )
+
+                # Richiediamo sia una confidenza sufficiente
+                # sia una separazione dai candidati concorrenti.
+                if (
+                    best_score < 0.55
+                    or best_score - second_score < 0.12
+                ):
+                    for _, region, _ in scored:
+                        region.metadata[
+                            "web_title_evaluation"
+                        ]["status"] = "ambiguous"
+                    continue
+
+                previous_type = winner.type.value
+
+                winner.metadata[
+                    "type_before_title_resolution"
+                ] = previous_type
+
+                previous_candidate = winner.metadata.get(
+                    "title_candidate"
+                ) or {}
+
+                winner.metadata["title_candidate"] = {
+                    **previous_candidate,
+                    "score": best_score,
+                    "method": "web_zone_title_v1",
+                    "components": {
+                        **previous_candidate.get(
+                            "components", {}
+                        ),
+                        "web_zone_context": (
+                            best_score
+                            - float(previous_candidate.get("score") or 0)
+                        ),
+                    },
+                }
+
+                winner.type = RegionType.ARTICLE_TITLE
+                winner.metadata["title_role"] = "candidate"
+
+                winner.metadata["web_title_evaluation"].update({
+                    "status": "accepted",
+                    "previous_type": previous_type,
+                    "url_similarity": round(similarity, 4),
+                })
+
+
+    @staticmethod
+    def _web_url_slug(page: PageRecord) -> str:
+        url = page.source.url
+
+        if not url:
+            for region in page.regions:
+                candidate = region.metadata.get(
+                    "article_url_candidate"
+                )
+                if candidate:
+                    url = candidate
+                    break
+
+        if not url:
+            return ""
+
+        try:
+            path = urlsplit(url).path
+            slug = unquote(
+                path.rstrip("/").split("/")[-1]
+            )
+        except (ValueError, TypeError):
+            return ""
+
+        return slug.replace("-", " ").replace("_", " ")
+
+
+    @staticmethod
+    def _web_header_eligible(region: Region) -> bool:
+        if (
+            not region.text
+            or not region.bbox
+            or region.exclude_from_article_text
+            or region.type not in {
+                RegionType.UNKNOWN,
+                RegionType.ARTICLE_SECTION_HEADER,
+            }
+        ):
+            return False
+
+        text = " ".join(region.text.split())
+
+        # Evitare date e marker tecnici.
+        if re.fullmatch(
+            r"\d{1,2}\s+[A-Za-zÀ-ÿ]+\s+\d{4}",
+            text,
+        ):
+            return False
+
+        if re.search(
+            r"https?://|vai all.articolo",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            return False
+
+        if text.casefold() in {
+            "login",
+            "abbonati",
+            "registrati",
+            "home",
+            "menu",
+        }:
+            return False
+
+        # Una rubrica di una sola parola non è
+        # sufficiente per identificare il main title.
+        if len(text.split()) == 1:
+            return False
+
+        # Una firma composta da due nomi propri non
+        # dovrebbe diventare automaticamente un titolo.
+        words = text.split()
+
+        if (
+            len(words) == 2
+            and all(word[:1].isupper() for word in words)
+            and all(word.isalpha() for word in words)
+        ):
+            return False
+
+        return True

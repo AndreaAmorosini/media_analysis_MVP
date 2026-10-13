@@ -37,8 +37,27 @@ from press_reputation.classification.inline_intrusion import InlineIntrusionDete
 from press_reputation.classification.pull_quote_resolver import PullQuoteResolver
 from press_reputation.classification.editorial_header_resolver import EditorialHeaderResolver
 from press_reputation.classification.watermark_text_cleaner import WatermarkTextCleaner
-
-
+from press_reputation.classification.web_chrome_resolver import (
+    WebChromeResolver,
+)
+from press_reputation.classification.web_article_zone_resolver import (
+    WebArticleZoneResolver,
+)
+from press_reputation.reconstruction.body_membership_refinement import (
+    BodyMembershipRefinementResolver,
+)
+from press_reputation.classification.editorial_preview_boundary import (
+    EditorialPreviewBoundaryResolver,
+)
+from press_reputation.reconstruction.column_membership_propagation import (
+    ColumnMembershipPropagationResolver,
+)
+from press_reputation.reconstruction.cross_page_article_reconciler import (
+    CrossPageArticleReconciler,
+)
+from press_reputation.classification.editorial_header_arbitrator import (
+    EditorialHeaderArbitrator,
+)
 
 
 class PageProcessingPipeline:
@@ -46,14 +65,26 @@ class PageProcessingPipeline:
         self.enable_style_enrichment = enable_style_enrichment
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
+        self.reading_orders: dict[tuple[str, str], ArticleReadingOrder] = {}
         
+
+        self.editorial_header_arbitrator = EditorialHeaderArbitrator()
+        self.cross_page_article_reconciler = CrossPageArticleReconciler()
+        self.column_membership_propagation_resolver = (
+            ColumnMembershipPropagationResolver()
+        )
+        self.editorial_preview_boundary_resolver = EditorialPreviewBoundaryResolver()
+        self.body_membership_refinement_resolver = (
+            BodyMembershipRefinementResolver()
+        )
+        self.web_article_zone_resolver = WebArticleZoneResolver()
+        self.web_chrome_resolver = WebChromeResolver()
         self.watermark_text_cleaner = WatermarkTextCleaner()
         self.editorial_header_resolver = EditorialHeaderResolver()
         self.pull_quote_resolver = PullQuoteResolver()
         self.inline_intrusion_detector = InlineIntrusionDetector()
         self.newspaper_continuation_resolver = NewspaperContinuationResolver()
         self.reading_order_resolver = ArticleReadingOrderResolver()
-        self.reading_orders: dict[tuple[str, str], ArticleReadingOrder] = {}
         self.article_clustering_resolver = ArticleClusteringResolver()
         self.author_resolver = AuthorResolver()
         self.section_header_resolver = SectionHeaderResolver()
@@ -80,6 +111,7 @@ class PageProcessingPipeline:
     def process(self, pages: list[PageRecord], pdf_path: Path | None = None, review_index_entries: list[ReviewIndexEntry] | None = None) -> list[PageRecord]:
         self.flow_links = []
         self.review_index_matches = []
+        self.cross_page_reconciliations = []
         self.reading_orders = {}
         
         if self.enable_style_enrichment and pdf_path is not None:
@@ -100,11 +132,17 @@ class PageProcessingPipeline:
             self.metadata_extractor.enrich(page)
             page.page_type = self.page_classifier.classify(page)
             
+        self.web_chrome_resolver.enrich_document(pages)
+        self.web_article_zone_resolver.enrich_document(pages)
         self.web_article_continuation_resolver.mark_continuation_priors(pages)
         self.title_resolver.resolve(pages, entries=review_index_entries)
+        self.title_resolver.resolve_web_zone_titles(pages)
         for page in pages:
             self.editorial_header_resolver.enrich(page)
             self.subtitle_resolver.enrich(page)
+            
+        self.editorial_preview_boundary_resolver.resolve(pages)
+        self.editorial_header_arbitrator.resolve_header_stacks(pages)
             
         if review_index_entries:
             self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
@@ -117,6 +155,7 @@ class PageProcessingPipeline:
             
 
         self.web_content_resolver.enrich_document(pages)
+        self.editorial_header_arbitrator.suppress_non_main_titles(pages)
         for page in pages:
             self.inline_intrusion_detector.enrich(page)
         self.web_article_continuation_resolver.enrich_document(pages)
@@ -143,10 +182,20 @@ class PageProcessingPipeline:
             self.article_clustering_resolver.assign_unassigned_body_in_owned_columns(page)
             self.article_clustering_resolver.recover_column_continuations(page)
             self.article_clustering_resolver.assign_recovered_body(page)
+            
+            self.body_membership_refinement_resolver.enrich_page(page)
+            
+            self.column_membership_propagation_resolver.enrich_page(page)
+            
+            if self.enable_body_continuation:
+                self.body_resolver.enrich(page)
+            
             self.section_header_resolver.enrich(page)
+            
             self.article_clustering_resolver.assign_section_headers_and_media(page)
             self.body_grouping_resolver.enrich(page)
         
+        self.cross_page_reconciliations = self.cross_page_article_reconciler.resolve(pages, self.flow_links)
         self.reading_orders = self.reading_order_resolver.resolve(pages)
             
         return pages
