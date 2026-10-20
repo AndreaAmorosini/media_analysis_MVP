@@ -1,13 +1,15 @@
 from __future__ import annotations
+from difflib import SequenceMatcher
 from statistics import median
 
 import hashlib
+import re
 from math import isfinite
 
 from press_reputation.config import ArticleClusteringConfig
 from press_reputation.models.page import (PageRecord,PageType,Region,RegionType,)
 from press_reputation.reconstruction.flow_models import FlowLink
-from press_reputation.review_index.models import ReviewIndexMatch
+from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
 
 
 class ArticleClusteringResolver:
@@ -115,11 +117,35 @@ class ArticleClusteringResolver:
         
         return True
 
+    _SITE_SUFFIX = re.compile(
+        r"[\s]*[-–—]\s*\S+\.(it|com|net|tv|eu|org|info)\s*$", re.IGNORECASE
+    )
+
+    @classmethod
+    def _same_headline(cls, left: str | None, right: str | None) -> bool:
+        """Headline quasi identiche (normalizzate) = stesso titolo ripetuto.
+
+        Il layout di stampa puo' aggiungere il suffisso del sito
+        ("titolo - sestante.tv"): si normalizza via prima del confronto.
+        """
+        if not left or not right:
+            return False
+        strip = lambda value: cls._SITE_SUFFIX.sub("", " ".join(value.casefold().split())).strip()
+        a, b = strip(left), strip(right)
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        return SequenceMatcher(None, a, b).ratio() >= 0.90
+
     def title_barrier(self, page: PageRecord, anchor: Region, candidate: Region,) -> bool:
         for other in page.regions:
             if (
                 other is anchor or other is candidate or other.type != RegionType.ARTICLE_TITLE or
                 other.metadata.get("title_role") in {"not_main", "ambiguous"} or
+                # Un headline ripetuto della STESSA identita' non e' una barriera:
+                # il body sotto il titolo replicato continua lo stesso articolo.
+                (other.article_id and anchor.article_id and other.article_id == anchor.article_id) or
                 not self.valid_box(other) or self.overlap(other, candidate) < self.config.min_horizontal_overlap):
                 continue
 
@@ -286,7 +312,65 @@ class ArticleClusteringResolver:
 
         return self.assign(region, best_id, method=method, score=best_score, evidence=evidence, anchor_region_id=anchor_id)
 
-    def assign_local(self, pages: list[PageRecord], index_matches: list[ReviewIndexMatch]) -> list[PageRecord]:
+    def assign_index_prior_bodies(self, page: PageRecord, anchors: dict[str, Region],
+                                    prior_entries: dict[tuple[str, str | None], ReviewIndexEntry]) -> None:
+        """Attribuisce body orfani usando il prior del Review Index.
+
+        Un titolo con match d'indice valido diventa owner di default del body
+        nella sua banda orizzontale, dalla pagina di partenza in avanti,
+        purché l'original page non contraddica. Ogni assegnazione è marcata
+        index_prior_v1 con score ed evidence conservati.
+        """
+        candidates = []
+        for article_id, title in anchors.items():
+            entry = prior_entries.get((page.document_id, self.region_id(title)))
+            if entry is not None:
+                candidates.append((article_id, title, entry))
+
+        if not candidates:
+            return
+
+        for region in page.regions:
+            if (region.type != RegionType.ARTICLE_BODY or region.article_id is not None or
+                    not self.eligible(region) or not self.valid_box(region)):
+                continue
+
+            qualifying = []
+            for article_id, title, entry in candidates:
+                if (entry.review_start_page is not None and
+                        page.pdf_page < entry.review_start_page):
+                    continue
+                if (entry.original_page is not None and page.source.original_page is not None and
+                        entry.original_page != page.source.original_page):
+                    continue
+                if not self.valid_box(title) or region.bbox[1] < title.bbox[1]:
+                    continue
+                if self.overlap(region, title) < self.config.index_prior_min_horizontal_overlap:
+                    continue
+                if self.title_barrier(page, title, region):
+                    continue
+                qualifying.append((article_id, title))
+
+            if len(qualifying) == 1:
+                article_id, title = qualifying[0]
+                self.assign(region, article_id, method="index_prior_v1",
+                            score=self.config.index_prior_score,
+                            evidence=["review_index_prior", "start_page_constraint"],
+                            anchor_region_id=self.region_id(title))
+            elif len(qualifying) > 1:
+                self.record(region, status="ambiguous", method="index_prior_v1",
+                            evidence=["multiple_index_prior_owners"])
+
+    def assign_local(self, pages: list[PageRecord], index_matches: list[ReviewIndexMatch],
+                     entries: list[ReviewIndexEntry] | None = None) -> list[PageRecord]:
+        entry_by_id = {entry.id: entry for entry in (entries or [])}
+        prior_entries: dict[tuple[str, str | None], ReviewIndexEntry] = {}
+        for match in index_matches:
+            if match.status != "matched":
+                continue
+            entry = entry_by_id.get(match.entry_id)
+            if entry is not None and match.title_region_id:
+                prior_entries.setdefault((entry.document_id, match.title_region_id), entry)
         matched_titles = {(match.pdf_page, match.title_region_id) for match in index_matches if (match.status == "matched" and match.title_similarity is not None and
                                                                                                     match.title_similarity >= self.config.min_bootstrap_index_similarity)}
 
@@ -294,17 +378,37 @@ class ArticleClusteringResolver:
             titles = [
                 region for region in page.regions
                 if (region.type == RegionType.ARTICLE_TITLE and self.valid_box(region) and self.eligible(region) and
-                    region.metadata.get("title_role") not in {"not_main", "ambiguous"})
+                    region.metadata.get("title_role") not in {"not_main", "ambiguous"} and
+                    # Una riga-link non è un headline: l'URL dell'articolo
+                    # stampato non apre una nuova identità.
+                    not region.metadata.get("article_url_candidate") and
+                    not (region.text or "").strip().lower().startswith(("http://", "https://", "www.")))
                 ]
 
             anchors: dict[str, Region] = {}
             for title in titles:
+                # Titolo ripetuto nello stesso printout (layout di stampa che
+                # replica l'headline a meta' colonna): stessa identita', non
+                # un nuovo articolo.
+                duplicate_of = next(
+                    (other_id for other_id, other_title in anchors.items()
+                     if (other_title is not title
+                         and self._same_headline(title.text, other_title.text)
+                         and self.overlap(title, other_title) >= self.config.min_horizontal_overlap)),
+                    None,
+                )
+                if duplicate_of is not None:
+                    self.assign(title, duplicate_of, method="duplicate_headline_v1", score=1.0,
+                                evidence=["repeated_headline_same_page"],
+                                anchor_region_id=self.region_id(anchors[duplicate_of]))
+                    continue
+
                 article_id = (title.metadata.get("article_candidate_id") or self.title_id(page, title))
                 if not article_id:
                     self.record(title, status="unresolved", method="title_anchor_v1", evidence=["missing_stable_region_id"])
                     continue
 
-                if self.assign(title, article_id, method="title_anchor_v1", score=1.0, evidence=["article_title"], 
+                if self.assign(title, article_id, method="title_anchor_v1", score=1.0, evidence=["article_title"],
                                 anchor_region_id=(self.region_id(title))):
                     anchors[article_id] = title
 
@@ -391,6 +495,8 @@ class ArticleClusteringResolver:
             self.bootstrap_membership(page, anchors, matched_titles)
                 
             self.assign_multicolumn(page, matched_titles)
+
+            self.assign_index_prior_bodies(page, anchors, prior_entries)
 
             # Un frammento già attribuito a una
             # continuazione web senza titolo su questa

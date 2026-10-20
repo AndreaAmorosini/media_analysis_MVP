@@ -10,12 +10,14 @@ import re
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
 from typing import Callable
+from urllib.parse import urlsplit
 
 from press_reputation.models.article import (
     ArticleRecord, ArticleSource, ExtractionCompleteness, ExtractionInfo,
     Provenance,
 )
 from press_reputation.models.page import PageRecord, PageType, Region, RegionType, SourceType
+from press_reputation.normalization.watermark_scrub import scrub_rights_phrase
 from press_reputation.web_retrieval.article_fetcher import FetchOutcome, PublicArticleFetcher
 
 
@@ -75,6 +77,15 @@ class WebArticleEnricher:
         norm = PublicArticleFetcher.normalized_url
         return norm(value) is not None and norm(value) == norm(other)
 
+    @staticmethod
+    def _is_article_url(url: str) -> bool:
+        """L'URL deve avere un path: la sola homepage del portale non
+        identifica l'articolo e non deve essere mai recuperata come body."""
+        try:
+            return urlsplit(url).path not in {"", "/"}
+        except ValueError:
+            return False
+
     def _candidates(self, pages: list[PageRecord], records: list[ArticleRecord]) -> list[dict]:
         record_by_key = {(r.document_id, r.id): r for r in records}
         grouped: dict[tuple[str, str], dict] = {}
@@ -84,7 +95,16 @@ class WebArticleEnricher:
                 continue
             titles = self._main_titles(page)
             owners = {title.article_id for title in titles}
-            # No title, or several titles -> URL ownership is ambiguous.
+            # Più titoli: l'URL appartiene all'unico articolo che ha body
+            # su questa pagina; se resta ambiguo si salta.
+            if len(owners) != 1:
+                owners = {
+                    region.article_id
+                    for region in page.regions
+                    if (region.type == RegionType.ARTICLE_BODY and region.article_id
+                        and not region.exclude_from_article_text
+                        and region.article_id in owners)
+                }
             if len(owners) != 1:
                 continue
             owner = next(iter(owners))
@@ -100,7 +120,7 @@ class WebArticleEnricher:
             record = entry["record"]
             candidate_urls = list(dict.fromkeys(
                 u for u in entry["urls"]
-                if PublicArticleFetcher.normalized_url(u)
+                if PublicArticleFetcher.normalized_url(u) and self._is_article_url(u)
             ))
             if record and record.url:
                 # Prefer the authoritative record URL only if it matches the page URL.
@@ -112,29 +132,64 @@ class WebArticleEnricher:
             if record and record.article_type != "web":
                 continue
             result.append({"document_id": doc, "article_id": owner, **entry, "url": candidate_urls[0]})
+
+        # Record untitled con URL (recupero orfano): la pagina web pubblica
+        # può fornire titolo e body; l'identità resta quella del record.
+        for record in records:
+            if (record.id.startswith("untitled:") and record.url and not record.title
+                    and record.article_type == "web"):
+                if (PublicArticleFetcher.normalized_url(record.url) is None
+                        or not self._is_article_url(record.url)):
+                    continue
+                if any(item["article_id"] == record.id for item in result):
+                    continue
+                owner_page = next(
+                    (p for p in pages
+                     if p.document_id == record.document_id and p.pdf_page in record.pdf_pages),
+                    None,
+                )
+                if owner_page is None:
+                    continue
+                result.append({
+                    "document_id": record.document_id, "article_id": record.id,
+                    "page": owner_page, "title": None, "urls": [record.url],
+                    "record": record, "url": record.url,
+                })
         return result
 
-    def _quality_reason(self, outcome: FetchOutcome, expected_title: str, pdf_text: str) -> tuple[str | None, float]:
+    def _quality_reason(self, outcome: FetchOutcome, expected_title: str | None, pdf_text: str) -> tuple[str | None, float | None]:
         if outcome.status != "extracted":
             return outcome.reason or outcome.status, 0.0
         words = len(re.findall(r"\b\w+\b", outcome.text))
         if len(outcome.text) < self.MIN_CHARS or words < self.MIN_WORDS:
             return "insufficient_public_body", 0.0
-        score = self.title_similarity(expected_title, outcome.title)
-        if score < self.TITLE_SIMILARITY_THRESHOLD:
-            return "title_mismatch", score
+        if expected_title is None:
+            # Record untitled: nessun titolo atteso dal PDF; il gate resta
+            # su sostanza del body pubblico e confronto col testo PDF.
+            score = None
+        else:
+            score = self.title_similarity(expected_title, outcome.title)
+            if score < self.TITLE_SIMILARITY_THRESHOLD:
+                return "title_mismatch", score
         if len(pdf_text.strip()) >= 800:
             if len(outcome.text) < self.MIN_PDF_LENGTH_RATIO * len(pdf_text.strip()):
                 return "web_body_shorter_than_pdf_threshold", score
         return None, score
 
     @staticmethod
-    def _apply(record: ArticleRecord, outcome: FetchOutcome, score: float) -> None:
+    def _apply(record: ArticleRecord, outcome: FetchOutcome, score: float | None) -> None:
+        # Il testo pubblico estratto con trafilatura puo' trascinare il
+        # footer del sito ("© RIPRODUZIONE RISERVATA"): non e' testo
+        # editoriale e non deve entrare nel body del record.
+        web_text = scrub_rights_phrase(outcome.text)
+        if not record.title and outcome.title:
+            record.title = outcome.title
+            record.field_origins["title"] = "web_html"
         record.body_pdf_raw = record.body_raw
         record.body_pdf_clean = record.body_clean or record.body
-        record.body_raw = outcome.text
-        record.body = outcome.text
-        record.body_clean = outcome.text
+        record.body_raw = web_text
+        record.body = web_text
+        record.body_clean = web_text
         record.url = outcome.resolved_url or outcome.url
         record.article_type = "web"
         record.source.source_type = SourceType.WEB
@@ -208,22 +263,147 @@ class WebArticleEnricher:
             finalization_warnings=["Article recovered from web-only title anchor; PDF body not assembled"],
         )
 
+    @staticmethod
+    def _reconcile_claimants(owners: set[tuple[str, str]],
+                            items_by_owner: dict[tuple[str, str], dict]) -> dict | None:
+        """URL rivendicato da più identità dello stesso documento.
+
+        Il caso tipico: il titolato sulla prima pagina e il suo frammento
+        untitled sulla pagina di continuazione. Procede il claimant con un
+        record titolato; altrimenti l'unico con record. Se resta ambiguo,
+        nessuno procede (comportamento precedente).
+        """
+        if len({doc for doc, _ in owners}) != 1:
+            return None
+        items = [items_by_owner[owner] for owner in owners if owner in items_by_owner]
+        with_record = [item for item in items if item.get("record")]
+        titled = [item for item in with_record if item["record"].title]
+        if len(titled) == 1:
+            return titled[0]
+        if len(with_record) == 1:
+            return with_record[0]
+        return None
+
+    @staticmethod
+    def _shingles(text: str, size: int = 8) -> set[str]:
+        words = re.findall(r"\w+", (text or "").casefold())
+        return {" ".join(words[i:i + size]) for i in range(max(0, len(words) - size + 1))}
+
+    def _absorb_web_fragments(self, records: list[ArticleRecord]) -> None:
+        """Assorbe i frammenti-stampa dello stesso articolo web già recuperato.
+
+        Condizioni conservative: il frammento sta su pagine adiacenti a
+        quelle originali dell'ancora (continuazione della stessa stampa),
+        il suo testo è in buona parte dentro il body web, e il suo eventuale
+        titolo è assente o coerente con l'headline (titolo ripetuto o
+        breadcrumb che la contiene). Un clipping con un proprio headline
+        diverso è un articolo a sé: anche quando condivide testo
+        sindacato, non va fuso.
+        """
+        anchors = [
+            (record, self._shingles(record.body), set(record.pdf_pages))
+            for record in records
+            if (record.extraction.method == "web_html" if record.extraction else False)
+            and record.body
+        ]
+        if not anchors:
+            return
+
+        def title_related(fragment: ArticleRecord, anchor: ArticleRecord) -> bool:
+            if not (fragment.title or "").strip():
+                return True
+            # Una riga menu/tag del sito (sezioni e keyword separate da
+            # virgole) non è un headline: il frammento è di fatto senza
+            # titolo proprio.
+            if len(fragment.title.split(",")) >= 4:
+                return True
+            if not (anchor.title or "").strip():
+                return False
+            left = " ".join(fragment.title.casefold().split())
+            right = " ".join(anchor.title.casefold().split())
+            if right in left or left in right:
+                return True
+            if SequenceMatcher(None, left, right).ratio() >= 0.50:
+                return True
+            # I token dell'headline dentro un titolo di servizio (breadcrumb
+            # che elenca anche i tag dell'articolo).
+            right_tokens = {token for token in re.findall(r"\w{4,}", right)}
+            if right_tokens and right_tokens <= set(re.findall(r"\w{4,}", left)):
+                return True
+            return False
+
+        for fragment in list(records):
+            if fragment in [anchor for anchor, _, _ in anchors]:
+                continue
+            if fragment.article_type != "web":
+                continue
+            shingles = self._shingles(fragment.body_pdf_raw or fragment.body or "")
+            if len(shingles) < 5:
+                continue
+            for anchor, anchor_shingles, anchor_pages in anchors:
+                if (anchor is fragment or anchor.document_id != fragment.document_id
+                        or not anchor_shingles):
+                    continue
+                distance = min(
+                    (abs(page - anchor_page)
+                     for page in fragment.pdf_pages for anchor_page in anchor_pages),
+                    default=None,
+                )
+                if distance is None or distance > 2:
+                    continue
+                overlap = len(shingles & anchor_shingles) / max(1, min(len(shingles), len(anchor_shingles)))
+                if overlap < 0.50:
+                    continue
+                if not title_related(fragment, anchor):
+                    continue
+                anchor.pdf_pages = sorted(set(anchor.pdf_pages) | set(fragment.pdf_pages))
+                anchor.provenance.extend(fragment.provenance)
+                warning = (f"Absorbed duplicate fragment of the same web article "
+                           f"from page(s) {fragment.pdf_pages}")
+                if warning not in anchor.finalization_warnings:
+                    anchor.finalization_warnings.append(warning)
+                anchor.finalization_status = "review_required"
+                records.remove(fragment)
+                self.report.append({
+                    "document_id": fragment.document_id,
+                    "article_id": fragment.id,
+                    "status": "absorbed_web_fragment",
+                    "absorbed_by": anchor.id,
+                    "overlap": round(overlap, 3),
+                    "page_distance": distance,
+                    "pages": fragment.pdf_pages,
+                })
+                break
+
     def enrich(self, pages: list[PageRecord], records: list[ArticleRecord]) -> list[ArticleRecord]:
         self.report = []
         self.cache = {}
         candidates = self._candidates(pages, records)
         # If two distinct article identities claim the same URL, never select it.
         urls_to_owners: dict[str, set[tuple[str, str]]] = {}
+        items_by_owner: dict[tuple[str, str], dict] = {}
         for item in candidates:
             normalized = PublicArticleFetcher.normalized_url(item["url"])
             urls_to_owners.setdefault(normalized, set()).add((item["document_id"], item["article_id"]))
+            items_by_owner.setdefault((item["document_id"], item["article_id"]), item)
         for item in candidates:
             url = item["url"]
             key = PublicArticleFetcher.normalized_url(url)
             report = {"document_id": item["document_id"], "article_id": item["article_id"], "url": url}
             if len(urls_to_owners[key]) != 1:
-                self.report.append({**report, "status": "skipped", "reason": "url_claimed_by_multiple_articles"})
-                continue
+                reconciled = self._reconcile_claimants(
+                    urls_to_owners[key], items_by_owner
+                )
+                if reconciled is None:
+                    self.report.append({**report, "status": "skipped", "reason": "url_claimed_by_multiple_articles"})
+                    continue
+                if reconciled is not item:
+                    self.report.append({**report, "status": "skipped",
+                                        "reason": "url_reconciled_to_other_claimant",
+                                        "selected_article_id": reconciled["article_id"]})
+                    continue
+                self.report.append({**report, "status": "reconciled_claimant",
+                                    "reason": "same_document_continuation_claims"})
             if key not in self.cache:
                 self.cache[key] = self.fetcher.fetch(url)
             outcome = self.cache[key]
@@ -247,4 +427,8 @@ class WebArticleEnricher:
             self.report.append({**report, "status": "web_selected", "http_status": outcome.http_status,
                                 "title_similarity": score, "body_chars": len(outcome.text),
                                 "pdf_body_chars": len(record.body_pdf_raw or "")})
+
+        # I frammenti PDF dello stesso articolo web (stampa multipagina o
+        # clipping ripetuto) si fondono nel record con il body web.
+        self._absorb_web_fragments(records)
         return records

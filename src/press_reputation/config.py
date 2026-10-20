@@ -17,8 +17,12 @@ class RegionClassificationConfig(BaseModel):
     
 class DocumentProfilingConfig(BaseModel):
     min_native_body_words: int = 30
-    min_image_coverage_without_text: float = 0.10
-    min_image_coverage_with_sparse_text: float = 0.15
+    min_image_coverage_without_text: float = 0.05
+    # I provider di rassegna rendono l'articolo come strisce immagine
+    # anche coprendo meno del 10% della pagina: una pagina con testo
+    # sparso (<30 parole body) e qualunque blocco immagine significativo
+    # merita l'OCR.
+    min_image_coverage_with_sparse_text: float = 0.05
     aggressive_ocr_image_coverage: float = 0.12
     aggressive_ocr_body_word_limit: int = 120
     
@@ -38,6 +42,10 @@ class ReviewIndexConfig(BaseModel):
     strong_title_similarity: float = 0.84
     min_match_score: float = 0.72
     min_score_margin: float = 0.10
+    # Similarita' minima quando l'evidenza e' forte (stessa testata, stessa
+    # data e stessa pagina originale): il match si accetta anche sotto
+    # min_title_similarity perche' la tripla esclude altri articoli.
+    strong_evidence_min_similarity: float = 0.50
     
     max_start_page_offset: int = 2
     max_continuation_pages: int = 3
@@ -209,6 +217,10 @@ class ArticleClusteringConfig(BaseModel):
     min_same_column_body_overlap: float = 0.55
     max_same_column_body_gap: float = 24.0
 
+    # Attribution seed from Review Index: matched title + start page constraints.
+    index_prior_min_horizontal_overlap: float = 0.20
+    index_prior_score: float = 0.70
+
 class BodyContinuationConfig(BaseModel):
     min_score: float = 0.70
     min_winning_margin: float = 0.12
@@ -257,10 +269,31 @@ class ArticleFinalizationConfig(BaseModel):
     min_reconstruction_confidence_for_ready: float = 0.65
     require_source_for_ready: bool = True
     require_date_for_ready: bool = True
+
+    # Record di recupero da body orfano senza titolo: sempre review_required.
+    allow_untitled_records: bool = False
+    untitled_record_min_body_chars: int = 200
+
+    # Attacco delle code: frammento orfano in minuscola su pagina vicina a un
+    # record il cui body non e' concluso. Il record di destinazione resta
+    # sempre review_required dopo l'attacco.
+    tail_attachment_max_page_distance: int = 2
+
+    # Un record untitled il cui testo e' gia' dentro un altro record della
+    # stessa rassegna (stesso clipping ripetuto o copia sindacata) resta
+    # separato ma viene marcato per il conteggio downstream.
+    duplicate_overlap_threshold: float = 0.40
+    duplicate_shingle_size: int = 8
     
 class TextFragmentRecoveryConfig(BaseModel):
     max_terminal_overrun: int = 4
     max_boundary_shift: int = 3
+
+    # Charspan consecutivi di docling possono sovrapporsi di 1-2 caratteri
+    # (fine del precedente = inizio del successivo + 1): un overlap entro
+    # questa tolleranza si riscontra tagliando l'inizio del frammento
+    # successivo invece di invalidarlo e perderne il testo.
+    max_span_overlap_tolerance: int = 3
 
     # Il confronto orig → text si tenta soltanto su
     # item di dimensioni limitate e molto simili.
@@ -287,12 +320,23 @@ class WatermarkTextCleaningConfig(BaseModel):
     min_native_span_overlap: float = 0.60
     
 class ExtractionCompletenessConfig(BaseModel):
-    min_body_assignment_coverage_for_ready: float = 0.95
-    min_ocr_text_retention_for_ready: float = 0.97
+    # Soglie di completezza calibrate: "ready" significa "estraibile senza
+    # revisione manuale", non "ricostruzione perfetta". Le pagine multiarticolo
+    # producono sempre un residuo di testo non attribuito che non deve
+    # squalificare da solo un record altrimenti completo.
+    min_body_assignment_coverage_for_ready: float = 0.90
+    min_ocr_text_retention_for_ready: float = 0.94
+    # Soglia differenziata per articoli il cui body è interamente OCR:
+    # la pulizia OCR selettiva può perdere qualche carattere senza che
+    # la ricostruzione sia da rivedere.
+    min_ocr_text_retention_for_ready_all_ocr: float = 0.92
 
-    max_unassigned_body_chars_for_ready: int = 20
-    max_unmapped_text_chars_for_ready: int = 0
-    max_unresolved_editorial_chars_for_ready: int = 40
+    # Soglie assolute: oltre a questi limiti fissi, i residui sono ammessi
+    # fino al 10% dei caratteri assegnati al body (soglia relativa).
+    max_unassigned_body_chars_for_ready: int = 150
+    max_unmapped_text_chars_for_ready: int = 100
+    max_unresolved_editorial_chars_for_ready: int = 200
+    max_residual_ratio_for_ready: float = 0.10
 
     min_duplicate_title_similarity: float = 0.82
     min_region_candidate_margin: float = 0.12

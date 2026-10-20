@@ -75,7 +75,12 @@ class EditorialHeaderArbitrator:
                 ):
                     continue
 
-                if upper.bbox[3] > lower.bbox[1] + 3:
+                # Due titoli affiancati in colonne diverse si sovrappongono
+                # verticalmente quasi del tutto: non sono uno stack. Un piccolo
+                # sconfinamento invece (banner che sfiora il deck sotto) e'
+                # normale e non deve escludere la coppia.
+                lower_height = lower.bbox[3] - lower.bbox[1]
+                if upper.bbox[3] > lower.bbox[1] + 0.30 * max(lower_height, 1.0):
                     continue
 
                 gap = max(
@@ -167,6 +172,18 @@ class EditorialHeaderArbitrator:
                     auxiliary = lower
                     role = "subtitle"
                     reason = "upper_prominent_lower_deck"
+
+                # Banner a tutta larghezza sopra un titolo di colonna: il
+                # banner e' la headline dell'articolo che copre entrambe le
+                # colonne, il titolo stretto sotto e' il suo deck.
+                elif (
+                    (upper.bbox[2] - upper.bbox[0]) >= 0.55 * (page.page_width or 595.0)
+                    and (lower.bbox[2] - lower.bbox[0]) <= 0.55 * (upper.bbox[2] - upper.bbox[0])
+                ):
+                    main = upper
+                    auxiliary = lower
+                    role = "subtitle"
+                    reason = "wide_banner_upper_headline"
 
                 else:
                     for region in (upper, lower):

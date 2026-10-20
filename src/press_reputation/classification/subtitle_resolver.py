@@ -1,3 +1,5 @@
+import re
+
 from statistics import median
 
 from press_reputation.config import SubtitleResolutionConfig
@@ -10,7 +12,45 @@ class SubtitleResolver:
         RegionType.ARTICLE_BODY,
         RegionType.ARTICLE_SUBTITLE,
     }
-    
+
+    # Breadcrumb della stampa web: "Home > Sezione > ... > Titolo articolo".
+    # Contengono un richiamo al titolo e finivano promossi a sottotitolo.
+    # Un sottotitolo editoriale italiano non inizia mai con "Home".
+    BREADCRUMB = re.compile(
+        r"^\s*home\b",
+        re.IGNORECASE,
+    )
+    # Chrome ricorrente della stampa browser->PDF: mai un sottotitolo.
+    CHROME_PATTERNS = [
+        re.compile(r"visitatori\s+unici", re.IGNORECASE),
+        re.compile(r"\b(?:lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica)\b.*\d{4}", re.IGNORECASE),
+        re.compile(r"^\s*\d{1,2}\s+(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}", re.IGNORECASE),
+        re.compile(r"^\s*(?:gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)\.?\s*\d{1,2},?\s*\d{4}", re.IGNORECASE),
+        re.compile(r"^\s*author\s*:", re.IGNORECASE),
+        re.compile(r"\bmin\.?\s*read\b|\bless\s+than\s+\d+\s*min", re.IGNORECASE),
+    ]
+
+    @staticmethod
+    def is_chrome_text(text: str) -> bool:
+        """True per testo di chrome web che non e' mai un sottotitolo.
+
+        Glifi di icone OCRizzati, etichette corte ("art"), conteggi di
+        visitatori, date di pubblicazione e byline tecniche.
+        """
+        value = (text or "").strip()
+        if not value:
+            return True
+        glyphs = len(re.findall(r"[\ue000-\uf8ff]", value))
+        if glyphs and glyphs >= len(re.findall(r"[A-Za-zà-ù0-9]", value)):
+            return True
+        words = re.findall(r"[A-Za-zà-ù]{2,}", value)
+        if len(words) < 2:
+            return True
+        for pattern in SubtitleResolver.CHROME_PATTERNS:
+            if pattern.search(value):
+                return True
+        return False
+
     def __init__(self, config: SubtitleResolutionConfig | None = None) -> None:
         self.config = config or SubtitleResolutionConfig()
         self.features = RegionFeatureExtractor()
@@ -76,6 +116,13 @@ class SubtitleResolver:
                 "inside_article_position_thumbnail"
             )
         ):
+            return False
+
+        if self.BREADCRUMB.search(region.text or ""):
+            region.metadata["subtitle_candidate_veto"] = "web_breadcrumb"
+            return False
+        if self.is_chrome_text(region.text or ""):
+            region.metadata["subtitle_candidate_veto"] = "web_chrome_text"
             return False
 
         if region.metadata.get("content_scope") in {

@@ -11,9 +11,17 @@ version = "0.1.0"
 python = "3.12.*"
 pip = ">=26.2.1,<27"
 pymupdf = ">=1.28.0,<2"
+langchain = ">=1.4.6,<2"
 
 [pypi-dependencies]
-docling = { version = "==2.126.0", extras = ["rapidocr"] }
+# docling-slim fornisce il pacchetto `docling` e la CLI. L'extra
+# "standard" replica la catena del metapacchetto docling[rapidocr]
+# (pypdfium2, docling-parse, docling-ibm-models, rapidocr) MA senza
+# onnxruntime CPU: il backend onnxruntime è servito da onnxruntime-gpu
+# (CUDAExecutionProvider), selezionabile via DOCLING_DEVICE senza
+# modifiche in src/.
+docling-slim = { version = "==2.126.0", extras = ["standard"] }
+onnxruntime-gpu = "==1.31.0"
 rapidocr = "==3.9.2"
 pydantic = ">=2.11, <3"
 typer = ">=0.16, <1"

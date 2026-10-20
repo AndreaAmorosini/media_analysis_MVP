@@ -1,10 +1,14 @@
+import re
+import unicodedata
 from collections import defaultdict
 from statistics import mean
+from urllib.parse import urlsplit
 
 from press_reputation.config import ArticleFinalizationConfig
 from press_reputation.lookup import normalize_entity_key
 from press_reputation.models.article import (ArticleRecord, ArticleSource, ExtractionInfo, Media, Provenance, SectionHeader)
 from press_reputation.models.page import PageRecord, PageType, Region, RegionType, SourceType
+from press_reputation.normalization.watermark_scrub import scrub_rights_phrase
 from press_reputation.reconstruction.flow_models import ArticleDraft
 from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
 from press_reputation.models.article import ArticleRegionRef
@@ -74,13 +78,24 @@ class ArticleFinalizer:
                 selected.append(page)
         return selected
 
-    def matched_index(self, draft: ArticleDraft, members: list[tuple[PageRecord, Region]], entries: dict[str, ReviewIndexEntry], matches: list[ReviewIndexMatch]) -> ReviewIndexEntry | None:
+    def matched_index(self, draft: ArticleDraft, members: list[tuple[PageRecord, Region]], entries: dict[str, ReviewIndexEntry], matches: list[ReviewIndexMatch]) -> list[ReviewIndexEntry]:
         title_ids = {self.region_id(region) for _, region in members if region.type == RegionType.ARTICLE_TITLE}
+        match_scores = {match.entry_id: match.score for match in matches if match.status == "matched"}
         found = [
             entries[match.entry_id] for match in matches if match.status == "matched" and match.entry_id in entries and
             match.title_region_id in title_ids and entries[match.entry_id].document_id == draft.document_id
         ]
-        return found[0] if len({entry.id for entry in found}) == 1 and found else None
+        if not found:
+            return []
+        # Righe d'indice quasi-duplicate possono matchare lo stesso articolo:
+        # si seleziona il prior con score più alto invece di scartare tutto.
+        unique: dict[str, ReviewIndexEntry] = {}
+        for entry in found:
+            unique.setdefault(entry.id, entry)
+        return sorted(
+            unique.values(),
+            key=lambda entry: -(match_scores.get(entry.id, 0.0)),
+        )
 
     @staticmethod
     def unique_value(values: list, field: str, warnings: list[str]):
@@ -96,7 +111,8 @@ class ArticleFinalizer:
         field_origins: dict[str, str] = {}
         members = self.members(draft, pages)
         safe_pages = self.unambiguous_pages(draft, pages)
-        entry = self.matched_index(draft, members, entries, matches)
+        index_priors = self.matched_index(draft, members, entries, matches)
+        entry = index_priors[0] if index_priors else None
 
         names = [self.source_name(page) for page in safe_pages]
         normalized_names = {normalize_entity_key(name) for name in names if name}
@@ -319,6 +335,8 @@ class ArticleFinalizer:
             warnings.append("Article source unavailable")
         if not publication_date:
             warnings.append("Publication date unavailable")
+        if len(index_priors) > 1:
+            warnings.append("Multiple review index entries matched this article; best prior selected")
         if extraction_confidence is None:
             warnings.append("Calibrated extraction confidence unavailable")
             
@@ -340,8 +358,28 @@ class ArticleFinalizer:
             for page in pages
         )
 
+        proximity_body = any(
+            (region.metadata.get("article_clustering") or {}).get("method") == "proximity_fallback_v1"
+            for _, region in members
+        )
+        index_prior_body = any(
+            (region.metadata.get("article_clustering") or {}).get("method") == "index_prior_v1"
+            for _, region in members
+        )
+        if proximity_body:
+            warnings.append("Body recovered via proximity fallback; requires manual verification")
+        elif index_prior_body:
+            warnings.append("Body attributed via review index prior")
+
+        retention_threshold = (
+            self.completeness_config.min_ocr_text_retention_for_ready_all_ocr
+            if article_uses_ocr and extraction_method == "ocr"
+            else self.completeness_config.min_ocr_text_retention_for_ready
+        )
+
         ready = (
             bool(draft.title and body_clean.strip())
+            and not proximity_body
             and not any(link.status != "accepted" for link in draft.links)
             and not any("Conflicting" in warning or "not attributable" in warning for warning in warnings)
             and reconstruction_confidence is not None
@@ -362,7 +400,7 @@ class ArticleFinalizer:
             )
             and (
                 completeness.ocr_text_retention is None
-                or completeness.ocr_text_retention >= self.completeness_config.min_ocr_text_retention_for_ready
+                or completeness.ocr_text_retention >= retention_threshold
             )
         )
         return ArticleRecord(
@@ -388,6 +426,367 @@ class ArticleFinalizer:
             body_clean=body_clean,
             extraction_completeness=completeness,
         )
+
+    UNFINISHED_ENDINGS = {
+        "in", "di", "a", "da", "con", "per", "tra", "fra", "che",
+        "del", "della", "delle", "dei", "degli", "dello", "e", "o",
+    }
+    TERMINALS = {".", "!", "?", "…", ":"}
+    # Boilerplate tipico delle testate web stampate a fine pagina: non è
+    # testo editoriale e non deve entrare nei record di recupero.
+    MASTHEAD_BOILERPLATE = re.compile(
+        r"(testata\s+giornalistica|registrat\w+\s+al\s+tribunale|"
+        r"tutti\s+i\s+diritti\s+riservati|diritti\s+riservati|"
+        r"privacy\s+policy|cookie\s+policy|copyright\s+©?\s*\d{4}|"
+        r"è\s+un\s+quotidiano\s+online\s+di|redazione\s+centrale|"
+        r"web-?magazine|dedicat\w+\s+a\s+(politica|attualità|attualita|"
+        r"cronaca|cultura|sport|eventi)|newsletter|seguici\s+su)",
+        re.IGNORECASE,
+    )
+    MASTHEAD_MAX_CHARS = 300
+
+    @classmethod
+    def _continuation_evidence(cls, previous: PageRecord, previous_body: str,
+                               current: PageRecord, current_body: str) -> str | None:
+        """Evidenza di continuazione fra due pagine di body orfano.
+
+       same_url: URL articolo identico su entrambe le pagine (stampa che
+          ripete l'URL);
+        url_continuation: la pagina precedente ha l'URL dell'articolo, la
+          corrente no (continuazione di stampa), testo non concluso e
+          nessuna nuova intestazione fonte;
+        same_source_continuation: stessa fonte su entrambe, testo non
+          concluso e minuscola iniziale (ritaglio cartaceo);
+        url_only_continuation: stampa web multipagina senza segnali
+          sintattici. La pagina precedente ha l'URL dell'articolo, la
+          corrente è una pagina web priva di ogni identità (nessun URL,
+          nessuna fonte): è la pagina successiva dello stesso printout.
+        """
+        prev_url = (previous.source.url or "").strip()
+        curr_url = (current.source.url or "").strip()
+
+        def article_like(url: str) -> bool:
+            try:
+                return urlsplit(url).path not in {"", "/"}
+            except ValueError:
+                return False
+
+        last = previous_body.rstrip()
+        words = last.split()
+        last_word = words[-1].strip('",;«»…').lower() if words else ""
+        unfinished = bool(last) and (
+            last[-1:] not in cls.TERMINALS or last_word in cls.UNFINISHED_ENDINGS
+        )
+        first_alpha = next((char for char in current_body.lstrip() if char.isalpha()), None)
+        starts_lower = first_alpha is not None and first_alpha.islower()
+
+        if (prev_url and curr_url and prev_url == curr_url and article_like(prev_url)):
+            return "same_url"
+        if (prev_url and not curr_url and unfinished and starts_lower
+                and not current.source.name):
+            return "url_continuation"
+        if (not prev_url and not curr_url and previous.source.name and
+                previous.source.name == current.source.name and
+                unfinished and starts_lower):
+            return "same_source_continuation"
+        # Stampa web multipagina: il frammento continua con frase completa
+        # o citazione (nessun segnale sintattico), ma la pagina è web e
+        # non ha identità propria. Il body web del record unito
+        # sostituirà comunque i frammenti dopo il recupero.
+        if (article_like(prev_url) and not curr_url and not current.source.name
+                and current.page_type == PageType.WEB):
+            return "url_only_continuation"
+        return None
+
+    @staticmethod
+    def _group_body(group: dict) -> str:
+        return group.get("body") or "\n\n".join(
+            (region.text or "").strip() for region in group["regions"]
+        )
+
+    @staticmethod
+    def _shingles(text: str, size: int = 8) -> set[str]:
+        words = re.findall(r"\w+", unicodedata.normalize("NFKD", (text or "").casefold()))
+        return {" ".join(words[i:i + size]) for i in range(max(0, len(words) - size + 1))}
+
+    @staticmethod
+    def _first_alpha(text: str) -> str:
+        return next((char for char in (text or "").lstrip() if char.isalpha()), "")
+
+    def _tail_target(self, group: dict, candidates: list[ArticleRecord]) -> ArticleRecord | None:
+        """Record di destinazione per un frammento-coda.
+
+        Il frammento inizia in minuscola (frase spezzata) e non ha un proprio
+        URL. I candidati sono articoli della stessa rassegna che terminano
+        prima o sulla stessa pagina del frammento: una coda continua un
+        articolo precedente, mai uno successivo. Si preferisce il body non
+        concluso; in sua assenza serve stessa pagina o stessa fonte.
+        A parità di distanza il caso resta ambiguo e non si attacca.
+        """
+        if any(page.source.url for page in group["pages"]):
+            return None
+        if not self._first_alpha(self._group_body(group)).islower():
+            return None
+
+        tail_pages = [page.pdf_page for page in group["pages"]]
+        tail_source = next((page.source.name for page in group["pages"] if page.source.name), None)
+        max_distance = self.config.tail_attachment_max_page_distance
+
+        scored: list[tuple[int, int, int, ArticleRecord]] = []
+        for record in candidates:
+            if record.document_id != group["page"].document_id:
+                continue
+            preceding = [q for q in record.pdf_pages if q <= max(tail_pages)]
+            if not preceding:
+                continue
+            distance = min(abs(p - q) for p in tail_pages for q in preceding)
+            if distance > max_distance:
+                continue
+            body = (record.body_pdf_raw or record.body or "").rstrip()
+            unfinished = bool(body) and body[-1] not in self.TERMINALS
+            same_page = any(q in tail_pages for q in record.pdf_pages)
+            same_source = bool(tail_source and record.source.source
+                               and record.source.source == tail_source)
+            if not (unfinished or same_page or same_source):
+                continue
+            scored.append((distance, 0 if unfinished else 1, id(record), record))
+
+        if not scored:
+            return None
+        scored.sort(key=lambda item: (item[0], item[1], item[2]))
+        if len(scored) > 1 and (scored[0][0], scored[0][1]) == (scored[1][0], scored[1][1]):
+            return None
+        return scored[0][3]
+
+    def _attach_tail(self, record: ArticleRecord, group: dict) -> None:
+        """Estende un record col frammento-coda: sempre review_required."""
+        body = self._group_body(group)
+        record.body_raw = (record.body_raw or "") + "\n\n" + body
+        record.body = (record.body or "") + "\n\n" + body
+        record.body_clean = (record.body_clean or record.body or "") + "\n\n" + body
+        for owning_page, region in group["pairs"]:
+            region.article_id = record.id
+            region.metadata["article_clustering"] = {
+                "status": "assigned",
+                "method": "tail_attachment_v1",
+                "score": None,
+                "evidence": ["continuation_fragment", "lowercase_start", "adjacent_page"],
+                "alternatives": [],
+                "anchor_region_id": None,
+            }
+            region_id = self.region_id(region)
+            if region_id:
+                record.provenance.append(Provenance(
+                    page=owning_page.pdf_page, bbox=region.bbox,
+                    content_type=region.type.value, region_id=region_id,
+                    method="tail_attachment_v1",
+                    extraction_method=region.extraction_method,
+                    source_refs=region.provenance,
+                ))
+                record.article_content.append(ArticleRegionRef(
+                    region_id=region_id, pdf_page=owning_page.pdf_page,
+                    type=region.type, order=len(record.article_content),
+                ))
+        record.pdf_pages = sorted(set(record.pdf_pages) | {page.pdf_page for page in group["pages"]})
+        pages_note = ", ".join(str(page.pdf_page) for page in group["pages"])
+        warning = f"Body extended by continuation fragment from page(s) {pages_note}; requires verification"
+        if warning not in record.finalization_warnings:
+            record.finalization_warnings.append(warning)
+        record.finalization_status = "review_required"
+
+    def _overlapping_record(self, body: str, document_id: str,
+                             references: list[tuple[str, ArticleRecord, set[str]]],
+                             ) -> ArticleRecord | None:
+        """Record della stessa rassegna che già contiene questo testo."""
+        shingles = self._shingles(body, self.config.duplicate_shingle_size)
+        if len(shingles) < 5:
+            return None
+        best, best_overlap = None, 0.0
+        for doc_id, record, other in references:
+            if doc_id != document_id or not other or not shingles:
+                continue
+            overlap = len(shingles & other) / max(1, min(len(shingles), len(other)))
+            if overlap > best_overlap:
+                best, best_overlap = record, overlap
+        if best_overlap >= self.config.duplicate_overlap_threshold:
+            return best
+        return None
+
+    def _untitled_records(self, records: list[ArticleRecord], pages: list[PageRecord]) -> list[ArticleRecord]:
+        """Record di recupero da body orfano senza identità titolo.
+
+        Sempre review_required: lo scopo è non perdere testo editoriale
+        classificato, non certificare un articolo. Le regioni ricevono un
+        article_id sintetico con metodo untitled_record_v1 nei metadata.
+        Gruppi su pagine adiacenti vengono fusi solo con evidenza forte
+        (stesso URL articolo, continuazione di stampa, stessa fonte).
+        """
+        groups: list[dict] = []
+        for page in sorted(pages, key=lambda item: (item.document_id, item.pdf_page)):
+            orphans = [
+                region for region in page.regions
+                if (region.type == RegionType.ARTICLE_BODY and region.article_id is None and
+                    not region.exclude_from_article_text and (region.text or "").strip() and
+                    region.metadata.get("content_scope") not in self.BLOCKED_SCOPES)
+            ]
+            # Boilerplate di testata web (registrazione, copyright, policy):
+            # regioni corte con pattern noto, lasciate orfane ma tracciate.
+            usable = []
+            for region in orphans:
+                text = (region.text or "").strip()
+                if (len(text) <= self.MASTHEAD_MAX_CHARS
+                        and self.MASTHEAD_BOILERPLATE.search(text)):
+                    region.metadata["untitled_record"] = {
+                        "status": "excluded", "reason": "web_masthead_boilerplate",
+                    }
+                    continue
+                usable.append(region)
+            orphans = usable
+            if not orphans:
+                continue
+            total_chars = sum(len((region.text or "").strip()) for region in orphans)
+            if total_chars < self.config.untitled_record_min_body_chars:
+                continue
+            ordered = sorted(orphans, key=lambda region: (
+                region.bbox[1] if region.bbox else 0.0,
+                region.bbox[0] if region.bbox else 0.0,
+            ))
+            groups.append({
+                "page": page, "regions": ordered,
+                "pairs": [(page, region) for region in ordered],
+                "chars": total_chars, "pages": [page], "evidence": [],
+            })
+
+        # Fusione multipagina solo su evidenza forte; in caso di dubbio
+        # i gruppi restano separati.
+        merged: list[dict] = []
+        for group in groups:
+            previous = merged[-1] if merged else None
+            if previous and previous["page"].document_id == group["page"].document_id:
+                previous_page = previous["pages"][-1]
+                current_page = group["page"]
+                if current_page.pdf_page == previous_page.pdf_page + 1:
+                    previous_body = "\n\n".join(
+                        (region.text or "").strip() for region in previous["regions"]
+                    ) if len(previous["pages"]) == 1 else previous["body"]
+                    current_body = "\n\n".join(
+                        (region.text or "").strip() for region in group["regions"]
+                    )
+                    evidence = self._continuation_evidence(
+                        previous_page, previous_body, current_page, current_body,
+                    )
+                    if evidence:
+                        previous["pages"].append(current_page)
+                        previous["regions"].extend(group["regions"])
+                        previous["pairs"].extend(group["pairs"])
+                        previous["chars"] += group["chars"]
+                        previous["evidence"].append(evidence)
+                        previous["body"] = previous_body + "\n\n" + current_body
+                        continue
+            merged.append(group)
+
+        created: list[ArticleRecord] = []
+        # Shingles dei record titolati per riconoscere il testo già coperto.
+        references: list[tuple[str, ArticleRecord, set[str]]] = [
+            (r.document_id, r,
+             self._shingles(r.body_pdf_raw or r.body or "", self.config.duplicate_shingle_size))
+            for r in records
+        ]
+
+        for group in merged:
+            page = group["page"]
+            pages_of_group = group["pages"]
+
+            # Coda di un articolo esistente: il frammento non diventa record.
+            target = self._tail_target(group, records + created)
+            if target is not None:
+                self._attach_tail(target, group)
+                continue
+
+            # Testo già dentro un altro record della stessa rassegna: il
+            # record resta separato ma marcato per il conteggio downstream.
+            group_body = self._group_body(group)
+            overlapping = self._overlapping_record(group_body, page.document_id, references)
+
+            article_id = f"untitled:{page.document_id}:p{pages_of_group[0].pdf_page}"
+            if len(pages_of_group) > 1:
+                article_id += f"-p{pages_of_group[-1].pdf_page}"
+            all_regions = group["regions"]
+            for region in all_regions:
+                region.article_id = article_id
+                region.metadata["article_clustering"] = {
+                    "status": "assigned",
+                    "method": "untitled_record_v1",
+                    "score": None,
+                    "evidence": ["orphan_body_recovery"] + list(group["evidence"]),
+                    "alternatives": [],
+                    "anchor_region_id": None,
+                }
+
+            body = "\n\n".join((region.text or "").strip() for region in all_regions)
+            provenance = [
+                Provenance(
+                    page=owning_page.pdf_page, bbox=region.bbox,
+                    content_type=region.type.value,
+                    region_id=self.region_id(region),
+                    method="untitled_record_v1",
+                    extraction_method=region.extraction_method,
+                    source_refs=region.provenance,
+                )
+                for owning_page, region in group["pairs"]
+            ]
+            url = next((p.source.url for p in pages_of_group if p.source.url), None)
+            source_page = next((p for p in pages_of_group if p.source.name), pages_of_group[0])
+            new_record = ArticleRecord(
+                id=article_id,
+                document_id=page.document_id,
+                source=ArticleSource(source_type=source_page.source.type, source=source_page.source.name),
+                publication_date=source_page.source.publication_date,
+                title=None,
+                original_pages=sorted({
+                    p.source.original_page for p in pages_of_group
+                    if p.source.original_page is not None
+                }),
+                pdf_pages=[p.pdf_page for p in pages_of_group],
+                url=url,
+                body_raw=body, body=body, body_clean=body,
+                article_type="web" if page.page_type == PageType.WEB else (
+                    "newspaper" if page.page_type == PageType.CLIPPING else "unknown"
+                ),
+                provenance=provenance,
+                extraction=ExtractionInfo(method="untitled_orphan_recovery"),
+                extraction_completeness=ExtractionCompleteness(
+                    status="unknown", reasons=["untitled_record"],
+                    unassigned_body_chars=0, assigned_body_chars=group["chars"],
+                ),
+                finalization_status="review_required",
+                finalization_warnings=[
+                    "Untitled record recovered from unattributed body; no article title found",
+                ] + (
+                    [f"Untitled pages merged by {', '.join(group['evidence'])}; requires verification"]
+                    if group["evidence"] else []
+                    ) + (
+                    [f"Recovered text overlaps record {overlapping.id}; likely duplicate of the same clipping"]
+                    if overlapping is not None else []
+                ),
+                field_origins={"body": "untitled_orphan_recovery"},
+                article_content=[
+                    ArticleRegionRef(
+                        region_id=self.region_id(region), pdf_page=owning_page.pdf_page,
+                        type=region.type, order=order,
+                    )
+                    for order, (owning_page, region) in enumerate(group["pairs"])
+                    if self.region_id(region)
+                ],
+            )
+            if overlapping is not None:
+                new_record.extraction_completeness.reasons.append(
+                    "recovered_text_overlaps_other_record"
+                )
+            created.append(new_record)
+            references.append((page.document_id, new_record,
+                              self._shingles(group_body, self.config.duplicate_shingle_size)))
+        return created
 
     def enrich(self, drafts: list[ArticleDraft], pages: list[PageRecord], entries: list[ReviewIndexEntry],
                 matches: list[ReviewIndexMatch], links: list[FlowLink] | None = None, skipped_groups: list[dict] | None = None,
@@ -416,6 +815,23 @@ class ArticleFinalizer:
                     completeness=completeness,
                 )
             )
+
+        if self.config.allow_untitled_records:
+            records.extend(self._untitled_records(records, pages))
+
+        # Rete di sicurezza sui residui di copyright: qualunque sia la via
+        # con cui il body e' stato costruito (PDF, web, frammenti assorbiti),
+        # una dicitura "riproduzione riservata" non e' mai testo editoriale.
+        # body_raw resta intatto perche' i charspan dei segmenti PDF si
+        # riferiscono a quella stringa.
+        for record in records:
+            for field in ("body", "body_clean"):
+                value = getattr(record, field, None)
+                if not value:
+                    continue
+                cleaned = scrub_rights_phrase(value)
+                if cleaned != value:
+                    setattr(record, field, cleaned)
 
         document_ids = {
             *(page.document_id for page in pages),

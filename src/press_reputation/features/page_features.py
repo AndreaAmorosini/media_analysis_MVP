@@ -1,5 +1,16 @@
 from pydantic import BaseModel
-from press_reputation.models.page import PageRecord
+from press_reputation.models.page import PageRecord, RegionType
+
+# Le regioni editoriali non portano evidenza strutturale sulla pagina.
+EDITORIAL_REGION_TYPES = {
+    RegionType.ARTICLE_BODY,
+    RegionType.ARTICLE_TITLE,
+    RegionType.ARTICLE_SUBTITLE,
+    RegionType.ARTICLE_KICKER,
+    RegionType.CAPTION,
+    RegionType.PULL_QUOTE,
+    RegionType.TABLE,
+}
 
 class PageFeatures(BaseModel):
     pdf_page: int
@@ -43,11 +54,22 @@ class PageFeatureExtractor:
         lower = text.lower()
 
         region_count = len(page.regions)
-        
+
         def count_type(value: str) -> int:
             return sum(1 for region in page.regions if region.type.value == value)
-        
+
         index_entry_count = sum(1 for region in page.regions if region.text and ("pag." in region.text.lower() or "pagina" in region.text.lower()))
+
+        # I marker strutturali (foglio, tiratura, diffusione...) sono evidenti
+        # solo se compaiono in regioni NON editoriali: una parola come
+        # "diffusione" dentro il body di un articolo web non trasforma la
+        # pagina in un clipping di quotidiano.
+        structural_lower = " ".join(
+            (region.text or "")
+            for region in page.regions
+            if (region.text or "").strip()
+            and region.type not in EDITORIAL_REGION_TYPES
+        ).lower()
 
         # text_region_count = sum(1 for region in page.regions if region.text and region.text.strip())
         # image_region_count = sum(1 for region in page.regions if region.type.value == "image")
@@ -58,19 +80,19 @@ class PageFeatureExtractor:
         # unknown_count = sum(1 for region in page.regions if region.type.value == "unknown")
 
         has_url = "http://" in lower or "https://" in lower
-        has_foglio = "foglio" in lower
-        has_superficie = "superficie" in lower
-        has_tiratura = "tiratura" in lower
-        has_diffusione = "diffusione" in lower
-        has_lettori = "lettori" in lower
-        has_dir_resp = "dir. resp" in lower or "dir.resp" in lower
-        has_quotidiano = "quotidiano" in lower
+        has_foglio = "foglio" in structural_lower
+        has_superficie = "superficie" in structural_lower
+        has_tiratura = "tiratura" in structural_lower
+        has_diffusione = "diffusione" in structural_lower
+        has_lettori = "lettori" in structural_lower
+        has_dir_resp = "dir. resp" in structural_lower or "dir.resp" in structural_lower
+        has_quotidiano = "quotidiano" in structural_lower
 
-        has_newsletter = "newsletter" in lower
+        has_newsletter = "newsletter" in structural_lower
         has_related_content_marker = (
-            "articoli correlati" in lower or "ultimi articoli" in lower or "leggi anche" in lower
+            "articoli correlati" in structural_lower or "ultimi articoli" in structural_lower or "leggi anche" in structural_lower
         )
-        has_cookie_marker = "cookie" in lower or "privacy policy" in lower
+        has_cookie_marker = "cookie" in structural_lower or "privacy policy" in structural_lower
 
         clipping_marker_count = sum(
             [

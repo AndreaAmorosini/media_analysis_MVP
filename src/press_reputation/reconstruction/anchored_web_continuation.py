@@ -67,15 +67,32 @@ class AnchoredWebContinuationResolver:
             score=self.similarity(title,r.text)
             if score>=.84 and len(r.text)<180:
                 candidates.append((score,r))
-        if len(candidates)!=1:
-            return None
-        region=candidates[0][1]
-        lane=self.lane_x(region,page)
-        main=self.lane_regions(page,lane,top_page=True)
-        # Require substantial narrative text after the title in the SAME lane.
-        if sum(len(r.text) for r in main if r.bbox[1]>=region.bbox[1]) < 250:
-            return None
-        return lane
+        if len(candidates)==1:
+            region=candidates[0][1]
+            lane=self.lane_x(region,page)
+            main=self.lane_regions(page,lane,top_page=True)
+            # Require substantial narrative text after the title in the SAME lane.
+            if sum(len(r.text) for r in main if r.bbox[1]>=region.bbox[1]) < 250:
+                return None, None
+            return lane, 'repeated_title'
+        # Fallback: la pagina di continuazione NON ripete il titolo (stampa
+        # del solo contenuto dell'articolo). Se non ha titoli propri e ha un
+        # blocco body dominante non assegnato, quello e' il proseguimento
+        # dell'articolo ancorato alla pagina web wrapper precedente.
+        own_titles=[r for r in page.regions if r.type==RegionType.ARTICLE_TITLE
+                    and (r.text or '').strip() and not r.exclude_from_article_text]
+        if own_titles:
+            return None, None
+        body=[r for r in page.regions if r.type==RegionType.ARTICLE_BODY and r.text and
+                r.bbox and not r.exclude_from_article_text and
+                r.metadata.get('content_scope') not in self.BLOCKED and
+                not r.article_id and len(r.text)>100]
+        if not body:
+            return None, None
+        main=max(body,key=lambda r: len(r.text))
+        if len(main.text)<250:
+            return None, None
+        return self.lane_x(main,page), 'untitled_body_lane'
 
     def enrich_document(self, pages: list[PageRecord]) -> list[FlowLink]:
         links=[]
@@ -93,7 +110,7 @@ class AnchoredWebContinuationResolver:
             first=by_num.get((start.document_id,start.pdf_page+1))
             if not first:
                 continue
-            lane=self.find_first_lane(first,anchor.text)
+            lane,lane_method=self.find_first_lane(first,anchor.text)
             if lane is None:
                 continue
             prev=start
@@ -125,7 +142,7 @@ class AnchoredWebContinuationResolver:
                     r.metadata['content_scope']='main'
                     r.metadata['include_in_main_body']=True
                     r.metadata['anchored_web_continuation']={
-                        'method':'repeated_title_verified_lane_v1',
+                        'method':f'{lane_method}_verified_lane_v1',
                         'from_pdf_page':prev.pdf_page,'anchor_pdf_page':start.pdf_page,
                         'lane_relative_x':round(lane,3)}
                 # The profiler can call a browser-print continuation CLIPPING
@@ -140,9 +157,11 @@ class AnchoredWebContinuationResolver:
                 links.append(FlowLink(
                     document_id=start.document_id, article_candidate_id=anchor.article_id,
                     from_pdf_page=prev.pdf_page, to_pdf_page=page.pdf_page,
-                    method='repeated_title_verified_lane_v1',status='accepted',
+                    method=f'{lane_method}_verified_lane_v1',status='accepted',
                     confidence=.90 if offset==1 else .82,
-                    evidence=['repeated_title_in_first_body_lane','consistent_column_lane',
+                    evidence=['repeated_title_in_first_body_lane' if lane_method=='repeated_title'
+                                else 'untitled_body_lane_after_web_wrapper',
+                              'consistent_column_lane',
                                 'compatible_publication_date'],
                     from_region_id=anchor.metadata.get('region_id') if offset==1 else None,
                     to_region_id=regions[0].metadata.get('region_id'),

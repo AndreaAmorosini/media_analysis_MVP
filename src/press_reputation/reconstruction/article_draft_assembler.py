@@ -1,6 +1,8 @@
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 from press_reputation.models.page import PageRecord, Region, RegionType
+from press_reputation.normalization.title_cleanup import clean_article_title
 from press_reputation.reconstruction.flow_models import ArticleReadingOrder, ReadingOrderSegment
 from press_reputation.reconstruction.flow_models import (
     ArticleDraft,
@@ -19,9 +21,14 @@ class ArticleDraftAssembler:
 
     def assemble(self, pages: list[PageRecord], links: list[FlowLink], reading_orders: dict[tuple[str, str], ArticleReadingOrder] | None = None) -> list[ArticleDraft]:
         self.skipped_groups = []
+        document_text: dict[str, str] = {}
         groups: dict[tuple[str, str], list[tuple[PageRecord, Region]]] = defaultdict(list)
 
         for page in pages:
+            document_text.setdefault(page.document_id, "")
+            document_text[page.document_id] += " " + " ".join(
+                (region.text or "") for region in page.regions
+            )
             for region in page.regions:
                 article_id = region.article_id or region.metadata.get("article_candidate_id")
                 
@@ -46,6 +53,19 @@ class ArticleDraftAssembler:
                                 link.article_candidate_id == article_id]
 
             titles = [region.text for _, region in members if region.type == RegionType.ARTICLE_TITLE and region.text]
+
+            # Headline ripetute dello stesso articolo (stampa che replica il
+            # titolo a meta' colonna) collassano su una sola prima del check
+            # di univocita'.
+            if len(titles) > 1:
+                unique = [titles[0]]
+                for candidate_title in titles[1:]:
+                    if all(
+                        SequenceMatcher(None, kept.casefold(), candidate_title.casefold()).ratio() < 0.90
+                        for kept in unique
+                    ):
+                        unique.append(candidate_title)
+                titles = unique
             
             order_record = (reading_orders.get((document_id, article_id)) if reading_orders is not None else None)
             
@@ -144,10 +164,18 @@ class ArticleDraftAssembler:
                 elif link.status == "rejected":
                     warnings.append(f"Rejected continuation: {link.from_pdf_page} -> {link.to_pdf_page}")
 
-            warnings.append("Draft body includes candidate regions; not approved for automatic reputation scoring")
+            if any(segment.selection_status == "candidate" for segment in segments):
+                warnings.append("Draft body includes candidate regions; not approved for automatic reputation scoring")
 
             if len(titles) != 1:
                 warnings.append("Missing or ambiguous article title")
+            else:
+                clean_title, cleanup_actions = clean_article_title(
+                    titles[0], document_text=document_text.get(document_id)
+                )
+                if cleanup_actions:
+                    warnings.append("Title OCR cleanup applied: " + ", ".join(cleanup_actions))
+                titles = [clean_title]
 
             drafts.append(
                 ArticleDraft(

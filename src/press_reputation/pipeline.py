@@ -18,6 +18,7 @@ from press_reputation.classification.title_resolver import TitleResolver
 from press_reputation.metadata import MetadataExtractor
 from press_reputation.models.page import PageRecord
 from press_reputation.reconstruction import BodyContinuationResolver
+from press_reputation.normalization.watermark_scrub import scrub_watermark_residue
 from press_reputation.style import PdfStyleEnricher
 from press_reputation.reconstruction.body_grouping import BodyGroupingResolver
 from press_reputation.classification.web_main_content import WebMainContentResolver
@@ -30,6 +31,7 @@ from press_reputation.classification.subtitle_resolver import SubtitleResolver
 from press_reputation.classification.section_header_resolver import SectionHeaderResolver
 from press_reputation.classification.author_resolver import AuthorResolver
 from press_reputation.reconstruction.article_clustering import ArticleClusteringResolver
+from press_reputation.reconstruction.orphan_proximity_fallback import OrphanProximityFallbackResolver
 from press_reputation.reconstruction.article_reading_order import ArticleReadingOrderResolver
 from press_reputation.reconstruction.flow_models import ArticleReadingOrder
 from press_reputation.reconstruction.newspaper_continuation import NewspaperContinuationResolver
@@ -38,6 +40,7 @@ from press_reputation.classification.pull_quote_resolver import PullQuoteResolve
 from press_reputation.classification.editorial_header_resolver import EditorialHeaderResolver
 from press_reputation.classification.watermark_text_cleaner import WatermarkTextCleaner
 from press_reputation.classification.web_chrome_resolver import WebChromeResolver
+from press_reputation.classification.url_harvester import UrlHarvester
 from press_reputation.classification.web_article_zone_resolver import WebArticleZoneResolver
 from press_reputation.reconstruction.body_membership_refinement import BodyMembershipRefinementResolver
 from press_reputation.classification.editorial_preview_boundary import EditorialPreviewBoundaryResolver
@@ -65,6 +68,7 @@ class PageProcessingPipeline:
         self.editorial_header_arbitrator = EditorialHeaderArbitrator()
         self.global_article_membership_resolver = GlobalArticleMembershipResolver()
         self.article_integrity_reconciler = ArticleIntegrityReconciler()
+        self.orphan_proximity_fallback_resolver = OrphanProximityFallbackResolver()
         self.general_continuation_resolver = GeneralContinuationResolver()
         self.editorial_fragment_refinement_resolver = EditorialFragmentRefinementResolver()
         self.cross_page_article_reconciler = CrossPageArticleReconciler()
@@ -77,6 +81,7 @@ class PageProcessingPipeline:
         )
         self.web_article_zone_resolver = WebArticleZoneResolver()
         self.web_chrome_resolver = WebChromeResolver()
+        self.url_harvester = UrlHarvester()
         self.watermark_text_cleaner = WatermarkTextCleaner()
         self.editorial_header_resolver = EditorialHeaderResolver()
         self.pull_quote_resolver = PullQuoteResolver()
@@ -115,6 +120,7 @@ class PageProcessingPipeline:
         self.general_continuation_report = []
         self.global_membership_report = []
         self.editorial_fragment_report = []
+        self.orphan_proximity_report = []
         self.article_integrity_report = []
         self.reading_orders = {}
 
@@ -139,6 +145,7 @@ class PageProcessingPipeline:
         # FIX 1: propagate reliable web layout evidence to UNKNOWN continuation pages.
         self.page_classifier.refine_document(pages)
         self.web_chrome_resolver.enrich_document(pages)
+        self.url_harvester.enrich_document(pages)
         self.web_article_zone_resolver.enrich_document(pages)
         self.web_article_continuation_resolver.mark_continuation_priors(pages)
         self.title_resolver.resolve(pages, entries=review_index_entries)
@@ -173,7 +180,7 @@ class PageProcessingPipeline:
         for page in pages:
             self.inline_intrusion_detector.enrich(page)
         self.web_article_continuation_resolver.enrich_document(pages)
-        self.article_clustering_resolver.assign_local(pages, self.review_index_matches)
+        self.article_clustering_resolver.assign_local(pages, self.review_index_matches, review_index_entries)
         self.title_resolver.consolidate_candidates(pages)
         for page in pages:
             self.editorial_header_resolver.enrich(page)
@@ -222,6 +229,9 @@ class PageProcessingPipeline:
         self.global_membership_report.extend(
             self.global_article_membership_resolver.enrich_document(pages)
         )
+        # FIX 7: ultima risorsa per body orfano con un solo titolo candidato sopra.
+        # Ogni assegnazione è marcata proximity_fallback_v1 e finisce in review.
+        self.orphan_proximity_report = self.orphan_proximity_fallback_resolver.enrich_document(pages)
         # FIX 6: cautious recovery of prose fragments, not formatting headings.
         self.editorial_fragment_report = self.editorial_fragment_refinement_resolver.enrich_document(pages)
         for page in pages:
@@ -232,6 +242,11 @@ class PageProcessingPipeline:
         self.article_integrity_report = self.article_integrity_reconciler.reconcile(
             pages, self.flow_links
         )
+        # Residui di watermark/registro fusi nel testo delle regioni body:
+        # si puliscono DOPO la classificazione e PRIMA del reading order,
+        # cosi' i segmenti copiano il testo gia' pulito. Le azioni restano
+        # registrate nei metadata delle regioni.
+        scrub_watermark_residue(pages)
         self.reading_orders = self.reading_order_resolver.resolve(pages)
 
         return pages

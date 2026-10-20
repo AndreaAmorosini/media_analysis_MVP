@@ -16,6 +16,50 @@ class EditorialFragmentRefinementResolver:
     def overlap(a, b):
         return max(0, min(a[2], b[2]) - max(a[0], b[0])) / max(1, min(a[2]-a[0], b[2]-b[0]))
 
+    def interpolated_column_owner(self, fragment: Region, bodies: list[Region]) -> list[str]:
+        """Owner per un frammento in una colonna senza body assegnati sopra/sotto.
+
+        Colonna interpolata: il frammento e' adiacente in orizzontale a una
+        colonna gia' posseduta da un articolo (a destra o a sinistra, scarto
+        minimo), con la sua fascia verticale dentro l'estensione dell'articolo
+        sulla pagina. Nessun altro articolo deve possedere body nella stessa
+        fascia x: in quel caso il frammento resta orfano. E' il caso delle
+        colonne mai "possedute" perche' l'OCR le ha frammentate in unknown
+        (es. colonna 3 tra la 2 e la 4 di un clipping).
+        """
+        x_gap = 18.0
+        by_owner: dict[str, set[str]] = {}
+        for body in bodies:
+            side = None
+            if 0 < fragment.bbox[0] - body.bbox[2] <= x_gap:
+                side = "left"
+            elif 0 < body.bbox[0] - fragment.bbox[2] <= x_gap:
+                side = "right"
+            if side:
+                by_owner.setdefault(body.article_id, set()).add(side)
+        candidates = list(by_owner)
+        if not candidates or len(candidates) != 1:
+            return []
+        owner = candidates[0]
+        # Nessun articolo (nemmeno l'owner) ha body che attraversano la fascia
+        # orizzontale del frammento NELLA SUA STESSA FASCIA VERTICALE: un lead
+        # a tutta larghezza sopra le colonne non e' un concorrente della
+        # colonna sotto di lui.
+        for body in bodies:
+            if body.bbox[3] <= fragment.bbox[1] or body.bbox[1] >= fragment.bbox[3]:
+                continue
+            if (body.bbox[0] < fragment.bbox[2] - 5
+                    and body.bbox[2] > fragment.bbox[0] + 5):
+                return []
+        owner_boxes = [b.bbox for b in bodies if b.article_id == owner]
+        if not owner_boxes:
+            return []
+        top = min(b[1] for b in owner_boxes)
+        bottom = max(b[3] for b in owner_boxes)
+        if not (top - 35 <= (fragment.bbox[1] + fragment.bbox[3]) / 2 <= bottom + 35):
+            return []
+        return [owner]
+
     def enrich_page(self, page: PageRecord) -> list[dict]:
         report = []
         bodies = [r for r in page.regions if r.type == RegionType.ARTICLE_BODY and r.article_id
@@ -51,6 +95,8 @@ class EditorialFragmentRefinementResolver:
                 continuation = (before and after) or (before and text[0].islower())
                 if continuation:
                     options.append(body.article_id)
+            if not options:
+                options = self.interpolated_column_owner(fragment, bodies)
             if len(set(options)) != 1:
                 continue
             owner = options[0]

@@ -3,9 +3,9 @@
 !.pixi/config.toml
 Data/
 src/data/
-pixi.lock
 **/__pycache__/
 results/
 .vscode/
 Risultati/
 critical/
+Risultati*/

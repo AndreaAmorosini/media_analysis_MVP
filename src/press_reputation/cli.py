@@ -7,12 +7,13 @@ import typer
 from rich.console import Console
 
 from press_reputation.normalization import PageNormalizer
+from press_reputation.normalization.watermark_scrub import scrub_watermark_residue
 from press_reputation.parsers import DoclingParser
 from press_reputation.image_analysis import enrich_article_position_thumbnails
 from press_reputation.style import PdfStyleEnricher
 from press_reputation.pipeline import PageProcessingPipeline
 from press_reputation.reconstruction.article_draft_assembler import ArticleDraftAssembler
-from press_reputation.config import DocumentProfilingConfig
+from press_reputation.config import ArticleFinalizationConfig, DocumentProfilingConfig
 from press_reputation.profiling.document_profiler import DocumentProfiler
 from press_reputation.profiling.merge import merge_extraction
 from press_reputation.review_index.parser import ReviewIndexParser
@@ -42,6 +43,7 @@ def parse(
     debug_bbox: bool = typer.Option(False, "--debug-bbox", help="Enable debug mode for bounding boxes"),
     ocr_policy: str = typer.Option("auto", "--ocr-policy", help="OCR strategy: auto, aggressive, all"),
     web_first: bool = typer.Option(False, "--web-first/--no-web-first", help="Prefer publicly accessible website article text; PDF fallback otherwise"),
+    allow_untitled: bool = typer.Option(False, "--allow-untitled-records/--no-untitled-records", help="Recover unattributed body as untitled review-required records"),
 ) -> None:
     #Elabora un PDF con Docling e genera PageRecord JSON per pagina.
 
@@ -145,6 +147,7 @@ def parse(
         ("global_membership.json", pipeline.global_membership_report),
         ("general_continuation.json", pipeline.general_continuation_report),
         ("editorial_fragments.json", pipeline.editorial_fragment_report),
+        ("orphan_proximity.json", pipeline.orphan_proximity_report),
     ):
         (flow_dir / filename).write_text(
             json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -158,7 +161,9 @@ def parse(
     )
     drafts = ArticleTextNormalizer().enrich(drafts, pages)
 
-    finalizer = ArticleFinalizer()
+    finalizer = ArticleFinalizer(
+        config=ArticleFinalizationConfig(allow_untitled_records=allow_untitled),
+    )
     records = finalizer.enrich(
         drafts=drafts,
         pages=pages,

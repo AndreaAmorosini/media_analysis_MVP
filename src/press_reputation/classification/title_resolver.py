@@ -14,6 +14,14 @@ from press_reputation.review_index.matcher import title_similarity
 from press_reputation.review_index.models import ReviewIndexEntry
 
 class TitleResolver:
+    # Frasi di collegamento della stampa browser->PDF: non sono titoli.
+    CHROME_TITLE_PHRASE = re.compile(
+        r"clicca\s+qui|vai\s+all['\u2019]articolo|leggi\s+l['\u2019]articolo\s+originale|"
+        r"articolo\s+originale\s+completo|read\s+more",
+        re.IGNORECASE,
+    )
+    STAMP_CODE_TOKEN = re.compile(r"^[A-Za-z]{0,12}\d{3,8}$")
+
     BLOCKED_TYPES = {
         RegionType.HEADER_METADATA,
         RegionType.SOURCE_NAME,
@@ -60,7 +68,29 @@ class TitleResolver:
             for region in page.regions:
                 if not self.eligible(region):
                     continue
-                
+
+                # Un timbro di registro del provider (es. "DATASTAMPA1667",
+                # "DS1667 DS1667") non e' mai il titolo di un articolo: se
+                # passasse per title anchor catturerebbe le colonne sotto di
+                # se' e produrrebbe articoli fantasma.
+                if self.is_stamp_code_text(region.text or ""):
+                    if region.type == RegionType.ARTICLE_TITLE:
+                        region.type = RegionType.WATERMARK
+                        region.metadata["demoted_from"] = "article_title"
+                    region.metadata["title_candidate_veto"] = "watermark_stamp_code"
+                    region.exclude_from_article_text = True
+                    continue
+
+                # Frasi di collegamento della stampa web ("Clicca qui sotto
+                # per andare all'articolo originale"): chrome, non titoli.
+                if self.CHROME_TITLE_PHRASE.search(region.text or ""):
+                    if region.type == RegionType.ARTICLE_TITLE:
+                        region.type = RegionType.UNKNOWN
+                        region.metadata["demoted_from"] = "article_title"
+                    region.metadata["title_candidate_veto"] = "web_chrome_link_phrase"
+                    region.exclude_from_article_text = True
+                    continue
+
                 components, index_entry_id = self.score(region, page, page_entries)
                 
                 total = round(sum(components.values()), 4)
@@ -118,6 +148,27 @@ class TitleResolver:
             }
         )
         
+    @staticmethod
+    def is_stamp_code_text(text: str) -> bool:
+        """True se il testo e' solo un timbro/codice di registro.
+
+        "DS1667 DS1667", "DATASTAMPA1667" sono timbri del provider; un testo
+        con almeno una parola editoriale ("Miasmi DS1667 dal Sarno...")
+        non lo e' e resta un titolo legittimo.
+        """
+        tokens: list[str] = []
+        for token in text.split():
+            if tokens and token == tokens[-1]:
+                continue
+            tokens.append(token)
+        if not tokens:
+            return False
+        if not any(re.search(r"\d{3,}", token) for token in tokens):
+            return False
+        if any(re.fullmatch(r"[A-Za-zà-ùÀ-Ù]{4,}", token) for token in tokens):
+            return False
+        return all(TitleResolver.STAMP_CODE_TOKEN.match(token) for token in tokens)
+
     @staticmethod
     def horizontal_overlap(a: Region, b: Region) -> float:
         overlap = max(.0, min(a.bbox[2], b.bbox[2]) - max(a.bbox[0], b.bbox[0]))

@@ -12,6 +12,13 @@ def normalized_title(value: str) -> str:
     value = "".join(char for char in value if not unicodedata.combining(char))
     return " ".join(re.findall(r"\w+", value))
 
+def squeezed_title(value: str) -> str:
+    """Forma compattata del titolo: senza spazi/punteggiatura.
+
+    Robusta alle fusioni e alla perdita di spazi tipiche dell'OCR
+    ("Scafatiy il Sindaco", "FOSSOIMPERATORE667RESIDENTI")."""
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", (value or "").casefold()))
+
 def title_similarity(left: str, right: str) -> float:
     a = normalized_title(left)
     b = normalized_title(right)
@@ -22,8 +29,16 @@ def title_similarity(left: str, right: str) -> float:
     a_tokens = set(a.split())
     b_tokens = set(b.split())
     token_score = len(a_tokens & b_tokens) / max(len(a_tokens | b_tokens), 1)
+    similarity = 0.65 * character_score + 0.35 * token_score
     
-    return 0.65 * character_score + 0.35 * token_score
+    # Ripiego robusto all'OCR: il confronto compattato recupera i casi in cui
+    # l'OCR ha fuso o perso spazi/apostrofi nella regione del titolo.
+    sa = squeezed_title(left)
+    sb = squeezed_title(right)
+    if len(sa) >= 10 and len(sb) >= 10:
+        similarity = max(similarity, SequenceMatcher(None, sa, sb).ratio())
+    
+    return similarity
 
 class ReviewIndexMatcher:
     def __init__(self, config: ReviewIndexConfig | None = None) -> None:
@@ -55,8 +70,18 @@ class ReviewIndexMatcher:
                 best = scored[0]
                 second_score = (scored[1].score if len(scored) > 1 else 0.0)
                 
+                # Override con evidenza forte: la voce e la regione condividono
+                # testata, data e pagina originale del quotidiano. Il titolo
+                # puo' restare sotto la soglia di similarita' per rumore OCR,
+                # ma la tripla di evidenze esclude che si tratti di un altro
+                # articolo.
+                strong_evidence = (
+                    best.title_similarity >= self.config.strong_evidence_min_similarity
+                    and {"same_publication_date", "same_source", "same_original_page"}.issubset(best.evidence)
+                )
+                
                 if (best.score < self.config.min_match_score or (best.score - second_score < self.config.min_score_margin) or 
-                    best.contradictions):
+                    (best.contradictions and not strong_evidence)):
                     continue
                 
                 best.status = "matched"

@@ -283,6 +283,26 @@ class WebArticleContinuationResolver:
             median(box[2] for box in boxes),
         )
 
+    def web_sheet_number(self, page: PageRecord) -> int | None:
+        """Numero di foglio stampato in fondo a una pagina web della rassegna.
+
+        Le pagine web portano un footer "WEB" con il numero di foglio
+        progressivo: due pagine con numeri consecutivi appartengono con
+        ogni probabilita' allo stesso articolo multipagina.
+        """
+        footers = [
+            region for region in page.regions
+            if region.type == RegionType.FOOTER and (region.text or "").strip()
+        ]
+        if not any((region.text or "").strip().casefold() == "web" for region in footers):
+            return None
+        numbers = [
+            int(region.text.strip())
+            for region in footers
+            if (region.text or "").strip().isdecimal()
+        ]
+        return min(numbers) if numbers else None
+
     def connection_score(self, chain: Chain, page: PageRecord, bodies: list[Region]) -> tuple[float, dict[str, float], list[str]]:
         components: dict[str, float] = {}
         contradictions: list[str] = []
@@ -293,7 +313,7 @@ class WebArticleContinuationResolver:
             return 0.0, components, ["maximum_chain_length"]
 
         components["adjacent_pages"] = 0.04
-        
+
         previous_areas = {
             r.metadata.get("layout_area_id") for r in chain.last.regions
             if r.metadata.get("content_scope") == "main" and r.metadata.get("layout_area_id")
@@ -306,6 +326,13 @@ class WebArticleContinuationResolver:
 
         if any(r.metadata.get("web_continuation_prior", {}).get("from_pdf_page") == chain.last.pdf_page for r in bodies):
             components["prior_continuation_page"] = 0.08
+
+        # Fogli web consecutivi ("WEB 1" -> "WEB 2"): lo stesso articolo web
+        # stampato su piu' pagine della rassegna.
+        anchor_sheet = self.web_sheet_number(chain.anchor)
+        current_sheet = self.web_sheet_number(page)
+        if anchor_sheet is not None and current_sheet is not None and current_sheet == anchor_sheet + chain.count:
+            components["sequential_web_sheet"] = 0.14
 
         anchor_url = url_key(chain.anchor.source.url)
         current_url = url_key(page.source.url)

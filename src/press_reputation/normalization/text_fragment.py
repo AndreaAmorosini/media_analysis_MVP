@@ -151,12 +151,32 @@ class TextFragmentRecovery:
             if span is None:
                 continue
 
-            if any(span[0] < end and start < span[1] for start, end in occupied):
+            conflict = next(
+                ((start, end) for start, end in occupied
+                 if span[0] < end and start < span[1]),
+                None,
+            )
+            if conflict is None:
+                occupied.append(span)
+                continue
+
+            # Charspan consecutivi possono sovrapporsi di pochi caratteri
+            # (fine del precedente = inizio del successivo + 1): si taglia
+            # l'inizio del frammento invece di invalidarlo e perdere il
+            # testo della colonna/blocco corrispondente.
+            overlap = conflict[1] - span[0]
+            trimmed = (conflict[1], span[1])
+            if (0 < overlap <= self.config.max_span_overlap_tolerance
+                    and trimmed[0] < trimmed[1]):
+                fragment.text = text[trimmed[0]:trimmed[1]]
+                fragment.effective_charspan = trimmed
+                fragment.confidence = min(fragment.confidence, 0.85)
+                fragment.warnings.append("consecutive_span_overlap_trimmed")
+                occupied.append(trimmed)
+            else:
                 fragment.text, fragment.effective_charspan = None, None
                 fragment.status, fragment.confidence = "ambiguous", 0.0
                 fragment.warnings.append("overlapping_effective_spans")
-            else:
-                occupied.append(span)
 
         unmapped = self.unmapped_intervals(text, occupied)
         warnings = [warning for fragment in fragments for warning in fragment.warnings]

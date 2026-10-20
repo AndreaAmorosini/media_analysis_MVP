@@ -388,15 +388,19 @@ class ExtractionCompletenessAnalyzer:
         incomplete_links, link_reasons = self.incomplete_chains(draft, pages)
         reasons = retention_reasons + link_reasons
 
+        # Soglie relative: un residuo e' tollerabile fino al 10% dei
+        # caratteri assegnati, oltre al limite assoluto di configurazione.
+        residual_limit = max(self.config.max_residual_ratio_for_ready * assigned, 1.0)
+
         if coverage is None:
             reasons.append("body_assignment_not_measurable")
         elif coverage < self.config.min_body_assignment_coverage_for_ready:
             reasons.append("body_assignment_coverage_below_threshold")
-        if unassigned > self.config.max_unassigned_body_chars_for_ready:
+        if unassigned > max(self.config.max_unassigned_body_chars_for_ready, residual_limit):
             reasons.append("unassigned_body_text")
-        if unmapped > self.config.max_unmapped_text_chars_for_ready:
+        if unmapped > max(self.config.max_unmapped_text_chars_for_ready, residual_limit):
             reasons.append("unmapped_ocr_text")
-        if unresolved_chars > self.config.max_unresolved_editorial_chars_for_ready:
+        if unresolved_chars > max(self.config.max_unresolved_editorial_chars_for_ready, residual_limit):
             reasons.append("unresolved_editorial_text")
         if ambiguous_multiarticle:
             reasons.append("unresolved_multiarticle_page_editorial_text")
@@ -503,7 +507,14 @@ class ExtractionCompletenessAnalyzer:
 
         for index, left in enumerate(selected_records):
             for right in selected_records[index + 1:]:
-                same_url = bool(left.url and right.url and left.url == right.url)
+                # L'URL a livello pagina è ereditato da ogni articolo presente
+                # sulla pagina: non prova un duplicato se i due record
+                # condividono pagine. Vale solo per pagine disgiunte.
+                shares_pages = bool(set(left.pdf_pages) & set(right.pdf_pages))
+                same_url = bool(
+                    left.url and right.url and left.url == right.url
+                    and not shares_pages
+                )
                 same_index = bool(
                     left.extraction_completeness.index_entry_id
                     and left.extraction_completeness.index_entry_id
