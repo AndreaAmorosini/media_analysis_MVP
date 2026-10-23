@@ -1,11 +1,9 @@
-# pixi environments
-.pixi/*
-!.pixi/config.toml
-Data/
-src/data/
-**/__pycache__/
-results/
-.vscode/
-Risultati/
-critical/
-Risultati*/
+Data
+rag_stampa
+rag_storage
+inputs
+.pixi
+.vscode
+*.log
+.env
+__pycache__

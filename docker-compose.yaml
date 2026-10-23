@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    image: knowledge-graphs-stampa:local
+    env_file:
+      - .env
+    volumes:
+      # Articoli: input dall'host, senza modificarli dal container.
+      - type: bind
+        source: ./Data
+        target: /app/Data
+        read_only: true
+      # Stato LightRAG: deve sopravvivere alla rimozione del container.
+      - type: bind
+        source: ./rag_stampa
+        target: /app/rag_stampa
+      # HTML generato dallo script graph.
+      - type: bind
+        source: ./out
+        target: /app/out
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

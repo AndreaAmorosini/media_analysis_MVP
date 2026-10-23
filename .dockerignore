@@ -1,0 +1,12 @@
+.git
+.pixi
+.vscode
+.env
+Data
+inputs
+rag_stampa
+rag_storage
+out
+*.log
+**/__pycache__
+**/*.pyc
