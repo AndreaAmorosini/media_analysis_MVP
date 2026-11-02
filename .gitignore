@@ -1,9 +1,8 @@
-Data
-rag_stampa
-rag_storage
-inputs
-.pixi
-.vscode
-*.log
 .env
-__pycache__
+.pixi/
+*__pycache__/
+*.pyc
+output/
+Data/
+.pytest_cache/
+NEXT.md

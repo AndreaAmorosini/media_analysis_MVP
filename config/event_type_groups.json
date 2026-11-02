@@ -1,0 +1,16 @@
+
+{
+  "natural_hazard": "Fenomeni meteorologici, geologici o naturali, osservati o previsti",
+  "environmental_incident": "Inquinamento, contaminazione e incidenti ambientali",
+  "infrastructure_work": "Costruzione, manutenzione, ampliamento o riparazione di infrastrutture",
+  "service_disruption": "Interruzioni, guasti e ripristini di servizi",
+  "accident": "Incidenti, danni accidentali e situazioni di emergenza",
+  "public_demonstration": "Manifestazioni, proteste, assemblee pubbliche e mobilitazioni",
+  "institutional_event": "Riunioni, conferenze, inaugurazioni e cerimonie istituzionali",
+  "legal_proceeding": "Indagini, procedimenti giudiziari, udienze e decisioni giudiziarie",
+  "regulatory_action": "Controlli, ispezioni, provvedimenti e azioni regolatorie",
+  "business_operation": "Operazioni aziendali, accordi, acquisizioni e attività organizzative",
+  "cultural_event": "Festival, spettacoli, mostre, sagre e attività culturali",
+  "sporting_event": "Competizioni e manifestazioni sportive",
+  "other": "Evento concreto che non rientra nelle categorie precedenti"
+}

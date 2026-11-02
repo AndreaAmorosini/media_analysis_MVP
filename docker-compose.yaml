@@ -1,22 +1,91 @@
 services:
-  app:
-    build: .
-    image: knowledge-graphs-stampa:local
+
+  neo4j:
+    image: neo4j:2026.10.0
+    restart: unless-stopped
+
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?}"
+      DB_PASSWORD: "${NEO4J_PASSWORD:?}"
+
+      NEO4J_server_default__listen__address: "0.0.0.0"
+
+      NEO4J_server_http_advertised__address: >-
+        ${NEO4J_PUBLIC_HOST}:${NEO4J_HTTP_PORT:-7474}
+
+      NEO4J_server_bolt_advertised__address: >-
+        ${NEO4J_PUBLIC_HOST}:${NEO4J_BOLT_PORT:-7687}
+
+    ports:
+      - "${NEO4J_BIND_ADDRESS:-0.0.0.0}:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BIND_ADDRESS:-0.0.0.0}:${NEO4J_BOLT_PORT:-7687}:7687"
+
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -c 'echo > /dev/tcp/127.0.0.1/7687'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+
+  presskg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: presskg:local
+    restart: unless-stopped
+    init: true
+
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
     env_file:
       - .env
-    volumes:
-      # Articoli: input dall'host, senza modificarli dal container.
-      - type: bind
-        source: ./Data
-        target: /app/Data
-        read_only: true
-      # Stato LightRAG: deve sopravvivere alla rimozione del container.
-      - type: bind
-        source: ./rag_stampa
-        target: /app/rag_stampa
-      # HTML generato dallo script graph.
-      - type: bind
-        source: ./out
-        target: /app/out
+
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_DATABASE: neo4j
+
+      PRESSKG_PROFILE: "5090"
+      PRESSKG_DATA_DIR: /app/Data
+      PRESSKG_OUTPUT_DIR: /app/output/extractions
+
+      UNSLOTH_BASE_URL: "${UNSLOTH_BASE_URL:-http://host.docker.internal:8081/v1}"
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+    volumes:
+      - type: bind
+        source: ${PRESSKG_HOST_DATA_DIR:-./Data}
+        target: /app/Data
+        read_only: true
+
+      - type: bind
+        source: ${PRESSKG_HOST_OUTPUT_DIR:-./output}
+        target: /app/output
+
+      # Modifiche al codice visibili
+      # senza ricostruire l'immagine.
+      - ./src:/app/src
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      - ./profiles:/app/profiles:ro
+      - ./tests:/app/tests:ro
+
+    networks:
+      - default
+
+    command: ["sleep", "infinity"]
+
+volumes:
+  neo4j_data:
+  neo4j_logs:

@@ -1,26 +1,27 @@
 [project]
-name = "media-kg-min"
+name = "presskg-ingestion"
 version = "0.1.0"
-description = "Setup minimale: KG unificato da rassegna stampa (LightRAG + unsloth)"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [dependencies]
 python = ">=3.11,<3.13"
-tqdm = ">=4.70.1,<5"
-fastapi = ">=0.156.4,<0.157"
-ollama = ">=0.32.15,<0.33"
 
 [pypi-dependencies]
-lightrag-hku = { version = ">=0.3", extras = ["api"] }
-openai = ">=1.60"
-sentence-transformers = ">=3.3"
-networkx = ">=3.4"
-pyvis = ">=0.3"
-python-dotenv = ">=1.0"
+presskg = { path = ".", editable = true }
+neo4j = ">=6,<7"
+openai = ">=1.70,<3"
+pydantic = ">=2.9,<3"
+python-dotenv = ">=1,<2"
+tqdm = ">=4.66,<5"
+json-repair = ">=0.60,<1"
+sentence-transformers = ">=6.2.0, <7"
 
 [tasks]
-ui = "lightrag-server --port 9621"
-ingest = "python src/ingest.py"
-graph = "python src/inspect_graph.py"
-query = "python src/query.py"
+preflight = "python -m presskg.cli preflight"
+init-db = "python -m presskg.cli init-db"
+ingest = "python -m presskg.cli ingest"
+stats = "python -m presskg.cli stats"
+check = "python -m unittest discover -s tests -v"
+enrich = "python -m presskg.enrich_graph"
+normalize-predicates = "python -m presskg.normalize_predicates"

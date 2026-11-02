@@ -1,0 +1,53 @@
+
+{
+  "topics": [
+    {
+      "id": "reti_manutenzione",
+      "name": "Reti e manutenzione",
+      "description": "Riparazione, sostituzione, gestione e manutenzione di reti idriche, tubazioni, condotte e infrastrutture di distribuzione.",
+      "aliases": ["manutenzione reti", "rete idrica"]
+    },
+    {
+      "id": "ambiente_depurazione",
+      "name": "Ambiente e depurazione",
+      "description": "Trattamento delle acque reflue, depurazione, inquinamento, qualità ambientale e protezione delle risorse idriche.",
+      "aliases": ["depurazione", "inquinamento idrico"]
+    },
+    {
+      "id": "investimenti_infrastrutture",
+      "name": "Investimenti e infrastrutture",
+      "description": "Finanziamenti, opere pubbliche, progetti infrastrutturali, realizzazione di impianti e investimenti nel servizio idrico.",
+      "aliases": ["investimenti", "opere infrastrutturali"]
+    },
+    {
+      "id": "continuita_servizio",
+      "name": "Continuità del servizio",
+      "description": "Interruzioni idriche, guasti, sospensioni, disservizi, ripristino dell'erogazione e disponibilità dell'acqua.",
+      "aliases": ["interruzione idrica", "disservizio"]
+    },
+    {
+      "id": "salute_sicurezza",
+      "name": "Salute e sicurezza",
+      "description": "Sicurezza delle persone, rischi sanitari, qualità dell'acqua potabile, contaminazione e protezione della salute.",
+      "aliases": ["sicurezza", "qualità acqua potabile"]
+    },
+    {
+      "id": "regolazione_sanzioni",
+      "name": "Regolazione e sanzioni",
+      "description": "Normative, obblighi regolatori, controlli, procedimenti, sanzioni, autorizzazioni e conformità del servizio.",
+      "aliases": ["sanzioni", "regolazione"]
+    },
+    {
+      "id": "governance_appalti",
+      "name": "Governance e appalti",
+      "description": "Governo delle organizzazioni, nomine, decisioni amministrative, appalti, affidamenti, contratti e responsabilità istituzionali.",
+      "aliases": ["appalti", "governance"]
+    },
+    {
+      "id": "tariffe_fatturazione",
+      "name": "Tariffe e fatturazione",
+      "description": "Tariffe del servizio, bollette, fatture, consumi, pagamenti, rimborsi e rapporti economici con gli utenti.",
+      "aliases": ["tariffe", "fatturazione"]
+    }
+  ]
+}
