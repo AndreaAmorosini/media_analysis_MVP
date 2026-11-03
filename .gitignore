@@ -1,0 +1,7 @@
+# Dati estratti e classificati (articoli, testi, pagine, riquadri): non vanno nel repo
+dati/
+# Ambienti Python
+.venv/
+.venv-paddle/
+__pycache__/
+*.pyc

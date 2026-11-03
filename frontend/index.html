@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reputation index Gori</title>
+  <link rel="stylesheet" href="style.css?v=20261103b">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Reputation index Gori</h1>
+    <span id="riepilogo"></span>
+    <!-- Filtri globali: valgono per albero, grafici e confronto -->
+    <div class="filtri">
+      <div class="campo-ricerca">
+        <input id="ricerca" type="search" placeholder="Cerca per parola chiave…" aria-label="Cerca negli articoli">
+        <span id="stato-ricerca"></span>
+      </div>
+      <div class="selettore selettore-tipo" role="group" aria-label="Tipo di fonte">
+        <button data-tipo="tutti" class="attivo">Tutto</button>
+        <button data-tipo="stampa">Giornali</button>
+        <button data-tipo="web">Web</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Sinistra: articoli in cartelle anno / mese -->
+    <aside id="colonna-lista">
+      <nav id="albero" aria-label="Articoli per anno e mese"></nav>
+    </aside>
+
+    <!-- Centro: grafici del periodo selezionato, oppure articolo aperto -->
+    <section id="colonna-centro">
+      <div id="grafici">
+        <nav id="percorso" aria-label="Periodo"></nav>
+        <div class="pannello">
+          <h2 id="titolo-torta">Distribuzione</h2>
+          <div id="grafico-torta" class="grafico"></div>
+        </div>
+        <div class="pannello">
+          <div class="intestazione-pannello">
+            <h2 id="titolo-linea">Andamento nel tempo</h2>
+            <div class="selettore selettore-modo">
+              <button data-modo="conteggi" class="attivo">Conteggi</button>
+              <button data-modo="media">Media</button>
+            </div>
+          </div>
+          <p class="nota-grafico" id="nota-linea"></p>
+          <div id="grafico-linea" class="grafico grafico-alto"></div>
+        </div>
+        <div class="pannello">
+          <div class="intestazione-pannello">
+            <h2>Confronto tra anni</h2>
+            <div class="selettore selettore-metrica" role="group" aria-label="Misura">
+              <button data-metrica="articoli" class="attivo">Articoli</button>
+              <button data-metrica="positivi">% positivi</button>
+              <button data-metrica="negativi">% negativi</button>
+              <button data-metrica="media">Sentiment medio</button>
+            </div>
+          </div>
+          <div id="scelta-anni" class="scelta-anni"></div>
+          <p class="nota-grafico" id="nota-confronto"></p>
+          <div id="grafico-confronto" class="grafico grafico-alto"></div>
+          <div id="blocco-distacco">
+            <h3 id="titolo-distacco" class="sottotitolo"></h3>
+            <div id="grafico-distacco" class="grafico"></div>
+            <p class="nota-grafico evidenza" id="distacco-massimo"></p>
+          </div>
+          <div class="tabella-scorrevole"><table id="tabella-confronto" class="tabella"></table></div>
+        </div>
+      </div>
+
+      <article id="articolo" hidden>
+        <button id="chiudi">← Torna ai grafici</button>
+        <div id="articolo-meta"></div>
+        <div id="articolo-corpo">
+          <div id="articolo-testo"></div>
+          <div id="articolo-pagina"></div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Destra: chat (fase successiva) -->
+    <aside id="colonna-chat">
+      <p class="segnaposto">Chat sugli articoli<br>(fase successiva)</p>
+    </aside>
+  </main>
+
+  <script src="app.js?v=20261103b"></script>
+</body>
+</html>
