@@ -17,8 +17,12 @@ from pathlib import Path
 
 from tqdm import tqdm
 from presskg.settings import CFG
-from validate_claims import (
-    FIELDS, claim_hash, fetch_one, open_driver, validate_judgement,
+from .primary import (
+    FIELDS,
+    claim_hash,
+    fetch_one,
+    open_driver,
+    validate_judgement,
 )
 
 POLICY = "auto-gate-v1"
@@ -139,40 +143,138 @@ def decide(primary: dict | None, secondary: dict | None, risk: bool) -> str:
     return "abstained"
 
 
+
 def write_batch(tx, rows):
-    # MERGE makes this operation safe when execute_write retries a transaction.
-    tx.run("""
+    ids = [row["id"] for row in rows]
+
+    if len(ids) != len(set(ids)):
+        raise ValueError(
+            "ID di validazione duplicati nel batch"
+        )
+
+    existing = tx.run("""
         UNWIND $rows AS row
+
+        OPTIONAL MATCH
+        (c:Claim {id: row.claim_id})
+
+        OPTIONAL MATCH
+        (v:ClaimValidation {id: row.id})
+
+        OPTIONAL MATCH
+        (c)-[r:HAS_VALIDATION]->(v)
+
+        OPTIONAL MATCH
+        (v)-[:VERIFIED_CORRECTION]->
+        (x:VerifiedClaimCorrection)
+
+        RETURN
+            row.id AS id,
+            count(DISTINCT c) AS claim_count,
+            count(DISTINCT r) AS link_count,
+            properties(v) AS stored,
+            collect(DISTINCT x.id) AS corrections
+    """, rows=rows).data()
+
+    if len(existing) != len(rows):
+        raise RuntimeError(
+            "Preflight Neo4j: cardinalità incoerente"
+        )
+
+    by_id = {item["id"]: item for item in existing}
+
+    for row in rows:
+        item = by_id[row["id"]]
+
+        if item["claim_count"] != 1:
+            raise RuntimeError(
+                f"Claim assente o duplicato: {row['claim_id']}"
+            )
+
+        stored = item["stored"]
+
+        if stored is None:
+            continue
+
+        if item["link_count"] != 1:
+            raise RuntimeError(
+                f"Validazione esistente non collegata: "
+                f"{row['id']}"
+            )
+
+        # Una validazione esistente è immutabile
+        # rispetto ai dati della valutazione.
+        for field, expected in row.items():
+            if field in {"status", "updated_at"}:
+                continue
+
+            if stored.get(field) != expected:
+                raise RuntimeError(
+                    f"Conflitto {row['id']}: "
+                    f"campo {field}"
+                )
+
+        old_status = stored.get("status")
+
+        if old_status == "corrected_verified":
+            correction_ids = item["corrections"]
+
+            if (
+                len(correction_ids) != 1
+                or stored.get("correction_id")
+                != correction_ids[0]
+            ):
+                raise RuntimeError(
+                    f"Correzione verificata incoerente: "
+                    f"{row['id']}"
+                )
+
+            if row["status"] not in {
+                "pending_correction",
+                "abstained",
+                "corrected_verified",
+            }:
+                raise RuntimeError(
+                    f"Transizione di stato non consentita: "
+                    f"{row['id']}"
+                )
+
+        elif old_status != row["status"]:
+            raise RuntimeError(
+                f"Conflitto sullo stato: {row['id']}: "
+                f"{old_status} != {row['status']}"
+            )
+
+    result = tx.run("""
+        UNWIND $rows AS row
+
         MATCH (c:Claim {id: row.claim_id})
+
         MERGE (v:ClaimValidation {id: row.id})
-        SET v.claim_id = row.claim_id,
-            v.claim_hash = row.claim_hash,
-            v.batch_id = row.batch_id,
-            v.policy_version = row.policy_version,
-            v.status = CASE
-                WHEN v.status = 'corrected_verified'
-                    AND v.claim_hash = row.claim_hash
-                THEN 'corrected_verified'
-                ELSE row.status
-            END,
-            v.eligible_for_propagation = false,
-            v.candidate_for_propagation = row.candidate_for_propagation,
-            v.primary_model = row.primary_model,
-            v.secondary_model = row.secondary_model,
-            v.primary_run_hash = row.primary_run_hash,
-            v.secondary_run_hash = row.secondary_run_hash,
-            v.primary_judge_json = row.primary_judge_json,
-            v.secondary_judge_json = row.secondary_judge_json,
-            v.corrected_claim_json = row.corrected_claim_json,
-            v.temporal_status = row.temporal_status,
-            v.semantic_family = row.semantic_family,
-            v.updated_at = row.updated_at
+
+        ON CREATE SET
+            v += row
+
         MERGE (c)-[:HAS_VALIDATION]->(v)
-    """, rows=rows).consume()
+
+        RETURN count(v) AS n
+    """, rows=rows).single()
+
+    if (
+        result is None
+        or result["n"] != len(rows)
+    ):
+        raise RuntimeError(
+            "Persistenza incompleta: rollback"
+        )
 
 
 def apply(args):
+    if args.commit and args.limit != 0:
+        raise ValueError(("Commit parziale non consentito: utilizzare --limit 0"))
     primary = read_rows(Path(args.primary))
+    if not primary:
+        raise ValueError("CSV primario vuoto")
     secondary = read_rows(Path(args.secondary)) if args.secondary else {}
     if secondary and not set(secondary).issubset(primary):
         raise ValueError("La valutazione secondaria contiene claim assenti dalla primaria")
@@ -189,10 +291,22 @@ def apply(args):
     try:
         with driver.session(database=CFG.neo4j_database) as session:
             if args.commit:
+                database_claims = session.run("""
+                    MATCH (c:Claim)
+                    RETURN count(c) AS total
+                """).single()["total"]
+                
+                if database_claims != len(primary):
+                    raise RuntimeError(
+                        f"Corpus incompleto o incoerente: Neo4j={database_claims}, CSV={len(primary)}. Commit Annullato"
+                    )
+                
+            if args.commit:
                 session.run("""
                     CREATE CONSTRAINT claim_validation_id IF NOT EXISTS
                     FOR (v:ClaimValidation) REQUIRE v.id IS UNIQUE
                 """).consume()
+                
             for cid, p_row in tqdm(entries, desc="Claim gate", unit="claim"):
                 claim = fetch_one(session, cid, args.context_chars)
                 if claim is None:

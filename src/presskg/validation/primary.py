@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import unicodedata
 from datetime import datetime, timezone
+import shutil
+import sqlite3
 
 from neo4j import GraphDatabase
 from openai import OpenAI
@@ -418,7 +420,7 @@ def validate_judgement(data, c):
     return sorted(set(errors))
 
 
-def ask_judge(client, model, system_prompt, payload, args, c):
+def ask_judge(client, model, system_prompt, payload, args, c, extra_validator=None):
     """Riprova solo su errori formali, senza accettare correzioni arbitrarie."""
     messages = [
         {"role": "system", "content": system_prompt},
@@ -437,6 +439,8 @@ def ask_judge(client, model, system_prompt, payload, args, c):
                 raise ValueError("output_troncato")
             judgement = parse_json(choice.message.content or "")
             errors = validate_judgement(judgement, c)
+            if extra_validator is not None:
+                errors = sorted(set(errors + extra_validator(judgement, c)))
         except Exception as exc:
             judgement = {
                 "verdict": "insufficient_context", "semantic_family": "other",
@@ -512,6 +516,11 @@ def run_generate(args):
                             "padding": args.context_chars, "tokens": args.max_tokens,
                             "retries": args.retries,
                             "selected_ids": sorted(selected_ids) if selected_ids is not None else None}))[:24]
+    
+    if args.retry_invalid:
+        retry_invalid(args, model, system_prompt, signature, selected_ids)
+        return
+    
     target = Path(args.out)
     target.parent.mkdir(parents=True, exist_ok=True)
     processed = set()
@@ -595,6 +604,394 @@ def run_generate(args):
         print("Generazione completata:", target, dict(counters))
     finally:
         driver.close()
+
+
+
+def retry_invalid(args, model, system_prompt, signature, selected_ids):
+    if not args.resume:
+        raise ValueError(
+            "--retry-invalid richiede --resume"
+        )
+
+    target = Path(args.out)
+
+    if not target.is_file():
+        raise FileNotFoundError(target)
+
+    original = {}
+
+    with target.open(
+        encoding="utf-8", newline=""
+    ) as source:
+        reader = csv.DictReader(source)
+
+        if reader.fieldnames != FIELDS:
+            raise ValueError(
+                "Schema CSV non compatibile"
+            )
+
+        for row in reader:
+            cid = row["claim_id"]
+
+            if not cid or cid in original:
+                raise ValueError(
+                    f"ID mancante o duplicato: {cid}"
+                )
+
+            if (
+                row["run_hash"] != signature
+                or row["model"] != model
+            ):
+                raise ValueError(
+                    f"Firma o modello incompatibile: {cid}"
+                )
+
+            original[cid] = row
+
+    if (
+        selected_ids is not None
+        and set(original) != selected_ids
+    ):
+        raise ValueError(
+            "Gli ID del CSV non corrispondono "
+            "a --claim-ids-file"
+        )
+
+    invalid = {
+        cid
+        for cid, row in original.items()
+        if row["validation_errors"].strip()
+    }
+
+    print(
+        f"Totale: {len(original)}; "
+        f"da riprovare: {len(invalid)}",
+        flush=True,
+    )
+
+    if not invalid:
+        return
+
+    source_digest = hashlib.sha256(
+        target.read_bytes()
+    ).hexdigest()
+
+    backup = target.with_name(
+        target.name
+        + f".before_retry.{source_digest[:12]}.bak"
+    )
+
+    if not backup.exists():
+        shutil.copy2(target, backup)
+
+    if hashlib.sha256(
+        backup.read_bytes()
+    ).hexdigest() != source_digest:
+        raise ValueError(
+            "Backup incompatibile con il CSV originale"
+        )
+
+    staging = Path(
+        str(target) + ".retrying.sqlite3"
+    )
+
+    db = sqlite3.connect(staging)
+
+    replacements = {}
+
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS results (
+                claim_id TEXT PRIMARY KEY,
+                row_json TEXT NOT NULL
+            )
+        """)
+
+        metadata = dict(
+            db.execute(
+                "SELECT key, value FROM meta"
+            ).fetchall()
+        )
+
+        expected_meta = {
+            "source_digest": source_digest,
+            "run_hash": signature,
+            "model": model,
+        }
+
+        if not metadata:
+            db.executemany(
+                "INSERT INTO meta(key, value) VALUES (?, ?)",
+                list(expected_meta.items()),
+            )
+            db.commit()
+        elif metadata != expected_meta:
+            raise ValueError(
+                "Staging incompatibile con il CSV "
+                "di origine"
+            )
+
+        previous = {
+            cid: json.loads(payload)
+            for cid, payload in db.execute(
+                "SELECT claim_id, row_json FROM results"
+            )
+        }
+
+        for cid, row in previous.items():
+            if cid not in invalid:
+                raise ValueError(
+                    f"Staging con ID inatteso: {cid}"
+                )
+
+            if (
+                row["claim_id"] != cid
+                or row["claim_hash"]
+                != original[cid]["claim_hash"]
+                or row["run_hash"] != signature
+                or row["model"] != model
+            ):
+                raise ValueError(
+                    f"Staging incoerente: {cid}"
+                )
+
+        pending = [
+            cid for cid in original
+            if cid in invalid and cid not in previous
+        ]
+
+        if args.limit > 0:
+            pending = pending[:args.limit]
+
+        print(
+            f"Già ritentati: {len(previous)}; "
+            f"da elaborare ora: {len(pending)}",
+            flush=True,
+        )
+
+        if pending:
+            client = OpenAI(
+                base_url=CFG.base_url,
+                api_key=CFG.api_key,
+                timeout=CFG.request_timeout,
+                max_retries=0,
+            )
+
+            driver = open_driver()
+
+            try:
+                with driver.session(
+                    database=CFG.neo4j_database
+                ) as session:
+
+                    for cid in tqdm(
+                        pending,
+                        desc="Retry secondary",
+                        unit="claim",
+                    ):
+                        claim = fetch_one(
+                            session,
+                            cid,
+                            args.context_chars,
+                        )
+
+                        if (
+                            claim is None
+                            or claim_hash(claim)
+                            != original[cid]["claim_hash"]
+                        ):
+                            raise ValueError(
+                                f"Claim modificato: {cid}"
+                            )
+
+                        if (
+                            not claim.get("quote")
+                            or claim.get("proof")
+                            != claim.get("quote")
+                        ):
+                            judgement = {
+                                "verdict": "insufficient_context",
+                                "semantic_family": "other",
+                                "temporal_status": "unknown",
+                                "corrected_claim": None,
+                                "reason": (
+                                    "Evidence originale non verificabile"
+                                ),
+                            }
+                            errors = [
+                                "source_evidence_mismatch"
+                            ]
+                            attempts = 0
+                        else:
+                            fields = (
+                                "title",
+                                "publication_date",
+                                "subject",
+                                "subject_type",
+                                "predicate",
+                                "predicate_raw",
+                                "object",
+                                "object_type",
+                                "modality",
+                                "attribution",
+                                "quote",
+                                "context",
+                            )
+
+                            payload = {
+                                key: claim.get(key)
+                                for key in fields
+                            }
+
+                            payload["flags_for_priority_only"] = (
+                                flags(claim)
+                            )
+
+                            judgement, errors, attempts = (
+                                ask_judge(
+                                    client,
+                                    model,
+                                    system_prompt,
+                                    payload,
+                                    args,
+                                    claim,
+                                )
+                            )
+
+                        result = make_row(
+                            claim,
+                            model,
+                            signature,
+                            judgement,
+                            errors,
+                            attempts,
+                        )
+
+                        if (
+                            result["claim_id"] != cid
+                            or result["claim_hash"]
+                            != original[cid]["claim_hash"]
+                        ):
+                            raise ValueError(
+                                f"Risultato incoerente: {cid}"
+                            )
+
+                        db.execute(
+                            """
+                            INSERT INTO results(
+                                claim_id, row_json
+                            )
+                            VALUES (?, ?)
+                            """,
+                            (cid, dump(result)),
+                        )
+
+                        db.commit()
+
+            finally:
+                driver.close()
+
+        replacements = {
+            cid: json.loads(payload)
+            for cid, payload in db.execute(
+                "SELECT claim_id, row_json FROM results"
+            )
+        }
+
+    finally:
+        db.close()
+
+    remaining = invalid - set(replacements)
+
+    if remaining:
+        print(
+            f"Retry parziale: {len(remaining)} "
+            "ancora da eseguire. "
+            "CSV originale invariato.",
+            flush=True,
+        )
+        return
+
+    if set(replacements) != invalid:
+        raise ValueError(
+            "Copertura dei retry incoerente"
+        )
+
+    temporary = Path(
+        str(target) + ".merged.tmp"
+    )
+
+    with temporary.open(
+        "w", encoding="utf-8", newline=""
+    ) as destination:
+        writer = csv.DictWriter(
+            destination,
+            fieldnames=FIELDS,
+        )
+
+        writer.writeheader()
+
+        for cid, old_row in original.items():
+            row = replacements.get(cid, old_row)
+
+            if (
+                row["claim_id"] != cid
+                or row["claim_hash"]
+                != old_row["claim_hash"]
+                or row["run_hash"] != signature
+            ):
+                raise ValueError(
+                    f"Merge non valido: {cid}"
+                )
+
+            writer.writerow(row)
+
+    with temporary.open(
+        encoding="utf-8", newline=""
+    ) as source:
+        merged_rows = list(csv.DictReader(source))
+
+    if (
+        len(merged_rows) != len(original)
+        or {
+            row["claim_id"] for row in merged_rows
+        } != set(original)
+    ):
+        raise ValueError(
+            "Merge incompleto o con ID duplicati"
+        )
+
+    for row in merged_rows:
+        cid = row["claim_id"]
+
+        if cid not in invalid and row != original[cid]:
+            raise ValueError(
+                f"Riga valida alterata: {cid}"
+            )
+
+    remaining_errors = sum(
+        bool(row["validation_errors"])
+        for row in merged_rows
+    )
+
+    temporary.replace(target)
+    staging.unlink(missing_ok=True)
+
+    print(
+        f"Retry completato: {len(invalid)}; "
+        f"giudizi ancora invalidi: {remaining_errors}",
+        flush=True,
+    )
+    print("Backup:", backup, flush=True)
+    print("CSV aggiornato:", target, flush=True)
+
 
 
 def store_validations(tx, records):
@@ -684,6 +1081,8 @@ def main():
     g.add_argument("--retries", type=int, default=1)
     g.add_argument("--max-tokens", type=int, default=1400)
     g.add_argument("--resume", action="store_true")
+    g.add_argument("--retry-invalid", action="store_true",
+                    help="Riprova soltanto i giudizi con validation_errors")
     g.add_argument("--claim-ids-file", default=None,
                     help="CSV con colonna claim_id per ripetere lo stesso benchmark")
     a = sub.add_parser("apply")
@@ -692,6 +1091,10 @@ def main():
     a.add_argument("--context-chars", type=int, default=600)
     a.add_argument("--commit", action="store_true")
     args = p.parse_args()
+    
+    if args.command == "generate" and args.retry_invalid and not args.resume:
+        p.error("--retry-invalid richiede --resume")
+    
     if args.command == "generate":
         if args.batch < 1 or args.limit < 0 or args.retries < 0:
             p.error("--batch >=1, --limit >=0 e --retries >=0 richiesti")

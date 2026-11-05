@@ -1,3 +1,4 @@
+name: kgpress
 services:
 
   neo4j:

@@ -25,3 +25,12 @@ stats = "python -m presskg.cli stats"
 check = "python -m unittest discover -s tests -v"
 enrich = "python -m presskg.enrich_graph"
 normalize-predicates = "python -m presskg.normalize_predicates"
+
+# Validation
+validation-primary = "python -m presskg.validation primary"
+validation-corrections = "python -m presskg.validation corrections"
+validation-decisions = "python -m presskg.validation decisions"
+validation-materialize = "python -m presskg.validation materialize"
+
+# Full workflow, mantiene il comportamento precedente
+validation-full = "bash scripts/run_validation_full.sh"

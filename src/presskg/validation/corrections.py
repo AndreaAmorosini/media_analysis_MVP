@@ -6,21 +6,26 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from copy import deepcopy
+import csv
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
+import re
+import unicodedata
 
 from openai import OpenAI
 from tqdm import tqdm
 
 from presskg.settings import CFG
 from presskg.entity_ontology import TYPES
-from presskg.ontology import CANONICAL as BASE_PREDICATES
-from presskg.predicate_catalog import CANONICAL as NEWS_PREDICATES
+from presskg.ontology import CANONICAL as BASE_PREDICATES, ALIASES as BASE_ALIASES
+from presskg.predicate_catalog import CANONICAL as NEWS_PREDICATES, ALIASES as NEWS_ALIASES , normalize_predicate_name
 
-from validate_claims import (
+from .primary import (
     BOOL_FIELDS,
     MODES,
     ask_judge,
@@ -33,7 +38,7 @@ from validate_claims import (
     validate_judgement,
 )
 
-from auto_apply_claim_validations import (
+from .decisions import (
     checked_judgement,
     read_rows,
 )
@@ -211,22 +216,77 @@ def check_proposal(claim, proposal):
     return sorted(set(errors))
 
 
+def canonicalize_proposal(proposal):
+    #Canonicalizza esclusivamente predicati riconosciuti.
+    if not isinstance(proposal, dict):
+        return proposal, None
+
+    result = deepcopy(proposal)
+
+    raw = result.get("predicate")
+
+    name = normalize_predicate_name(raw)
+
+    if name in PREDICATES and name != "OTHER":
+        canonical = name
+    else:
+        base = BASE_ALIASES.get(name)
+        news = NEWS_ALIASES.get(name)
+
+        if (
+            base is not None
+            and news is not None
+            and base != news
+        ):
+            raise ValueError(
+                f"Alias ambiguo: {name}: "
+                f"{base} / {news}"
+            )
+
+        canonical = (
+            news if news is not None else base
+        )
+
+    if canonical not in PREDICATES:
+        return result, None
+
+    if canonical == "OTHER":
+        return result, None
+
+    result["predicate"] = canonical
+
+    return result, canonical
+
 def candidate_for(row, judgement):
-    """Identificatore stabile della correzione."""
+    """Identificatore deterministico della proposta canonica."""
+
+    proposal, canonical = canonicalize_proposal(
+        judgement.get("corrected_claim")
+    )
+
+    if canonical is None:
+        raise ValueError(
+            "Impossibile creare un candidato "
+            "con predicato non canonico"
+        )
 
     base = {
         "claim_id": row["claim_id"],
         "claim_hash": row["claim_hash"],
         "primary_run_hash": row["run_hash"],
         "primary_model": row["model"],
-        "proposal": judgement["corrected_claim"],
+        "proposal": proposal,
     }
+
+    candidate_digest = digest(base)
 
     return {
         **base,
         "article_id": row["article_id"],
-        "candidate_id": "cc-" + digest(base)[:32],
-        "candidate_hash": digest(base),
+        "candidate_id": (
+            "cc-" + candidate_digest[:32]
+        ),
+        "candidate_hash": candidate_digest,
     }
 
 
@@ -246,6 +306,12 @@ def target_claim(original, candidate):
         "attribution": proposal.get("attribution"),
     }
 
+def canonical_literal(text):
+    if not isinstance(text, str):
+        return ""
+    
+    text = unicodedata.normalize("NFC", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 def check_reverification(judgement, claim):
     errors = validate_judgement(
@@ -295,10 +361,7 @@ def check_reverification(judgement, claim):
                 "short_supporting_span"
             )
 
-        elif (
-            span not in (claim.get("quote") or "")
-            and span not in (claim.get("context") or "")
-        ):
+        elif not any(canonical_literal(span) in canonical_literal(source) for source in (claim.get("quote"), claim.get("context")) if isinstance(source, str) and source):
             errors.append(
                 "supporting_span_not_literal"
             )
@@ -306,27 +369,70 @@ def check_reverification(judgement, claim):
     return sorted(set(errors))
 
 
+
+
 def prepare(args):
     primary = read_rows(Path(args.primary))
 
     output = Path(args.out)
+    report = Path(
+        args.report
+        if args.report
+        else str(output) + ".excluded.csv"
+    )
 
-    if output.exists() and not args.overwrite:
-        raise FileExistsError(
-            f"File già esistente: {output}. "
-            "Usare --overwrite."
+    if output.resolve() == report.resolve():
+        raise ValueError(
+            "Output candidati e report devono essere distinti"
         )
 
-    output.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    for path in (output, report):
+        if path.exists() and not args.overwrite:
+            raise FileExistsError(
+                f"File già esistente: {path}. "
+                "Usare --overwrite."
+            )
 
-    temporary = output.with_suffix(
-        output.suffix + ".tmp"
-    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report.parent.mkdir(parents=True, exist_ok=True)
+
+    temporary = Path(str(output) + ".tmp")
+    report_tmp = Path(str(report) + ".tmp")
+
+    report_fields = [
+        "claim_id",
+        "original_predicate",
+        "proposed_predicate",
+        "canonical_predicate",
+        "reason",
+        "primary_validation_errors",
+    ]
 
     counts = Counter()
+    reasons = Counter()
+
+    def record_exclusion(writer, cid, row, proposal,
+                         canonical, problems):
+        problems = sorted(set(problems))
+
+        writer.writerow({
+            "claim_id": cid,
+            "original_predicate": row.get("predicate", ""),
+            "proposed_predicate": (
+                str(proposal.get("predicate") or "")
+                if isinstance(proposal, dict)
+                else ""
+            ),
+            "canonical_predicate": canonical or "",
+            "reason": ";".join(problems),
+            "primary_validation_errors": (
+                row.get("validation_errors") or ""
+            ),
+        })
+
+        counts["excluded"] += 1
+        reasons.update(problems)
+
     driver = open_driver()
 
     try:
@@ -335,10 +441,17 @@ def prepare(args):
                 database=CFG.neo4j_database
             ) as session,
             temporary.open(
-                "w",
-                encoding="utf-8",
+                "w", encoding="utf-8"
             ) as destination,
+            report_tmp.open(
+                "w", encoding="utf-8", newline=""
+            ) as rejected,
         ):
+            writer = csv.DictWriter(
+                rejected, fieldnames=report_fields
+            )
+            writer.writeheader()
+
             for cid, row in tqdm(
                 primary.items(),
                 desc="Prepare corrections",
@@ -347,7 +460,30 @@ def prepare(args):
                 if row["verdict"] != "correction_proposed":
                     continue
 
+                if (
+                    args.limit > 0
+                    and counts["proposed"] >= args.limit
+                ):
+                    break
+
                 counts["proposed"] += 1
+
+                try:
+                    raw_judgement = json.loads(
+                        row.get("judge_json") or "{}"
+                    )
+                except (ValueError, TypeError):
+                    raw_judgement = None
+
+                raw_proposal = (
+                    raw_judgement.get("corrected_claim")
+                    if isinstance(raw_judgement, dict)
+                    else None
+                )
+
+                proposal, canonical = canonicalize_proposal(
+                    raw_proposal
+                )
 
                 claim = fetch_one(
                     session,
@@ -356,30 +492,49 @@ def prepare(args):
                 )
 
                 if claim is None:
-                    counts["missing_original"] += 1
+                    record_exclusion(
+                        writer, cid, row,
+                        raw_proposal, canonical,
+                        ["missing_original_claim"],
+                    )
                     continue
 
                 judgement = checked_judgement(
-                    row,
-                    claim,
+                    row, claim
                 )
 
                 if judgement is None:
-                    counts["invalid_judgement"] += 1
+                    record_exclusion(
+                        writer, cid, row,
+                        raw_proposal, canonical,
+                        ["invalid_primary_judgement"],
+                    )
                     continue
 
-                problems = check_proposal(
-                    claim,
-                    judgement.get("corrected_claim"),
+                proposal, canonical = canonicalize_proposal(
+                    judgement.get("corrected_claim")
                 )
 
+                problems = check_proposal(
+                    claim, proposal
+                )
+
+                if canonical is None:
+                    problems.append(
+                        "predicate_outside_ontology_or_other"
+                    )
+
                 if problems:
-                    counts["invalid_candidate"] += 1
+                    record_exclusion(
+                        writer, cid, row,
+                        judgement.get("corrected_claim"),
+                        canonical,
+                        problems,
+                    )
                     continue
 
                 candidate = candidate_for(
-                    row,
-                    judgement,
+                    row, judgement
                 )
 
                 destination.write(
@@ -388,19 +543,34 @@ def prepare(args):
 
                 counts["prepared"] += 1
 
+        # I file originali vengono preservati
+        # fino al completamento della preparazione.
+        if args.overwrite:
+            timestamp = datetime.now(
+                timezone.utc
+            ).strftime("%Y%m%dT%H%M%S%fZ")
+
+            for path in (output, report):
+                if path.exists():
+                    backup = path.with_name(
+                        path.name
+                        + f".before_prepare.{timestamp}.bak"
+                    )
+                    shutil.copy2(path, backup)
+                    print("Backup:", backup, flush=True)
+
         temporary.replace(output)
+        report_tmp.replace(report)
 
     finally:
         driver.close()
         temporary.unlink(missing_ok=True)
+        report_tmp.unlink(missing_ok=True)
 
-    print(
-        "Candidates:",
-        dict(counts),
-        "->",
-        output,
-        flush=True,
-    )
+    print("Candidates:", dict(counts), flush=True)
+    print("Exclusion reasons:", dict(reasons), flush=True)
+    print("Candidates output:", output, flush=True)
+    print("Excluded report:", report, flush=True)
 
 
 def verify(args):
@@ -459,6 +629,21 @@ def verify(args):
                 "Usare un nuovo file di output."
             )
 
+    write_target = output
+    if args.retry_failed:
+        if not args.resume or not output.is_file():
+            raise ValueError("--retry-failed richiede --resume e un file di riverifiche esistente")
+        
+        write_target = Path(str(output) + ".retrying")
+        
+        if write_target.exists():
+            staged = read_jsonl(write_target, "candidate_id", allow_repeated=True)
+            for cid, item in staged.items():
+                if (cid not in candidates or item.get("run_signature") != run_signature or item.get("model") != args.model or item.get("candidate_hash") != candidates[cid]["candidate_hash"]
+                    or item.get("claim_hash") != candidates[cid]["claim_hash"] or item.get("claim_id") != candidates[cid]["claim_id"]):
+                    raise ValueError(f"Retry styage incoerente: {cid}")
+            previous.update(staged)
+
     pending = [
         candidate
         for candidate in candidates.values()
@@ -498,7 +683,7 @@ def verify(args):
             driver.session(
                 database=CFG.neo4j_database
             ) as session,
-            output.open(
+            write_target.open(
                 "a",
                 encoding="utf-8",
             ) as destination,
@@ -573,6 +758,7 @@ def verify(args):
                     payload,
                     judge_args,
                     synthetic_claim,
+                    extra_validator=check_reverification
                 )
 
                 errors = sorted(set(
@@ -593,6 +779,7 @@ def verify(args):
                     "judgement": judgement,
                     "errors": errors,
                     "attempts": attempts,
+                    "validation_policy_version": "reverification-nfc-whitespace-v1"
                 }
 
                 destination.write(
@@ -606,18 +793,95 @@ def verify(args):
                     else 0
                 )
 
-                if (
-                    consecutive_errors
-                    >= args.max_consecutive_errors
-                ):
-                    raise RuntimeError(
-                        "Troppe risposte consecutive non valide. "
-                        "Verificare Unsloth e riprendere "
-                        "con --resume."
-                    )
+                # if (
+                #     consecutive_errors
+                #     >= args.max_consecutive_errors
+                # ):
+                #     raise RuntimeError(
+                #         "Troppe risposte consecutive non valide. "
+                #         "Verificare Unsloth e riprendere "
+                #         "con --resume."
+                #     )
 
     finally:
         driver.close()
+        
+    
+    if args.retry_failed and args.limit == 0:
+        base = read_jsonl(
+            output,
+            "candidate_id",
+            allow_repeated=True,
+        )
+
+        staged = (
+            read_jsonl(
+                write_target,
+                "candidate_id",
+                allow_repeated=True,
+            )
+            if write_target.exists()
+            else {}
+        )
+
+        base.update(staged)
+
+        if set(base) != set(candidates):
+            raise ValueError(
+                "Candidati e riverifiche non coincidono. "
+                "Nessun file originale sostituito."
+            )
+
+        for cid, candidate in candidates.items():
+            item = base[cid]
+
+            if (
+                item["candidate_hash"]
+                != candidate["candidate_hash"]
+                or item["claim_hash"]
+                != candidate["claim_hash"]
+                or item["claim_id"]
+                != candidate["claim_id"]
+                or item["run_signature"]
+                != run_signature
+                or item["model"] != args.model
+            ):
+                raise ValueError(
+                    f"Riverifica incompatibile: {cid}"
+                )
+
+        if write_target.exists():
+            temporary = Path(str(output) + ".merged.tmp")
+
+            with temporary.open(
+                "w", encoding="utf-8"
+            ) as destination:
+                for cid in candidates:
+                    destination.write(
+                        dump(base[cid]) + "\n"
+                    )
+
+            backup = output.with_name(
+                output.name
+                + ".before_retry."
+                + digest({
+                    "candidate_ids": sorted(base),
+                    "source_size": output.stat().st_size,
+                    "source_mtime_ns": output.stat().st_mtime_ns,
+                })[:16]
+                + ".bak"
+            )
+
+            shutil.copy2(output, backup)
+            temporary.replace(output)
+            write_target.unlink(missing_ok=True)
+
+            print(
+                "Riverifiche consolidate:", len(base),
+                flush=True,
+            )
+            print("Backup:", backup, flush=True)
+
 
 
 def correction_record(
@@ -640,6 +904,8 @@ def correction_record(
         "batch_id": batch_id,
         "claim_id": cid,
         "claim_hash": candidate["claim_hash"],
+        "primary_run_hash": candidate["primary_run_hash"],
+        "source_candidate_id": candidate["candidate_id"],
         "candidate_hash": candidate["candidate_hash"],
         "subject_name": proposal["subject"]["name"],
         "subject_type": proposal["subject"]["type"],
@@ -661,40 +927,177 @@ def correction_record(
     }
 
 
+
 def store_corrections(tx, records):
+    ids = [row["id"] for row in records]
+
+    if len(ids) != len(set(ids)):
+        raise ValueError(
+            "ID delle correzioni duplicati"
+        )
+
+    existing = tx.run("""
+        UNWIND $rows AS row
+
+        OPTIONAL MATCH
+        (c:Claim {id: row.claim_id})
+        -[:HAS_VALIDATION]->
+        (v:ClaimValidation {id: row.validation_id})
+
+        OPTIONAL MATCH
+        (x:VerifiedClaimCorrection {id: row.id})
+
+        OPTIONAL MATCH
+        (v)-[:VERIFIED_CORRECTION]->
+        (linked:VerifiedClaimCorrection)
+
+        RETURN
+            row.id AS id,
+            properties(v) AS validation,
+            properties(x) AS correction,
+            collect(DISTINCT linked.id) AS linked_ids
+    """, rows=records).data()
+
+    if len(existing) != len(records):
+        raise RuntimeError(
+            "Preflight correzioni: cardinalità incoerente"
+        )
+
+    by_id = {item["id"]: item for item in existing}
+    to_write = []
+
+    for row in records:
+        item = by_id[row["id"]]
+        validation = item["validation"]
+        correction = item["correction"]
+        linked_ids = item["linked_ids"]
+
+        if validation is None:
+            raise RuntimeError(
+                f"Validazione originale assente: "
+                f"{row['claim_id']}"
+            )
+
+        for field in (
+            "claim_hash",
+            "batch_id",
+            "primary_run_hash",
+        ):
+            if validation.get(field) != row[field]:
+                raise RuntimeError(
+                    f"Validazione incoerente: "
+                    f"{row['claim_id']}: {field}"
+                )
+
+        if validation.get("status") not in {
+            "pending_correction",
+            "abstained",
+            "corrected_verified",
+        }:
+            raise RuntimeError(
+                f"Stato non correggibile: "
+                f"{row['claim_id']}"
+            )
+
+        previous_id = validation.get("correction_id")
+
+        if (
+            previous_id is not None
+            and previous_id != row["id"]
+        ):
+            raise RuntimeError(
+                f"Correzione incompatibile: "
+                f"{row['claim_id']}"
+            )
+
+        if (
+            linked_ids
+            and linked_ids != [row["id"]]
+        ):
+            raise RuntimeError(
+                f"Correzioni collegate incompatibili: "
+                f"{row['claim_id']}"
+            )
+
+        if correction is not None:
+            for field, expected in row.items():
+                if field == "updated_at":
+                    continue
+
+                if correction.get(field) != expected:
+                    raise RuntimeError(
+                        f"Correzione persistita differente: "
+                        f"{row['id']}, campo {field}"
+                    )
+
+            if (
+                validation.get("status")
+                != "corrected_verified"
+                or previous_id != row["id"]
+                or linked_ids != [row["id"]]
+            ):
+                raise RuntimeError(
+                    f"Correzione già esistente "
+                    f"con collegamenti incoerenti: {row['id']}"
+                )
+
+            # Già persistita in modo coerente.
+            continue
+
+        if (
+            validation.get("status")
+            == "corrected_verified"
+        ):
+            raise RuntimeError(
+                f"Validazione già corretta "
+                f"ma correzione mancante: {row['id']}"
+            )
+
+        to_write.append(row)
+
+    if not to_write:
+        return
+
     result = tx.run("""
         UNWIND $rows AS row
 
-        MATCH (c:Claim {id: row.claim_id})
-              -[:HAS_VALIDATION]->
-              (v:ClaimValidation {id: row.validation_id})
+        MATCH
+        (c:Claim {id: row.claim_id})
+        -[:HAS_VALIDATION]->
+        (v:ClaimValidation {id: row.validation_id})
 
-        WHERE v.claim_hash = row.claim_hash
+        WHERE
+            v.claim_hash = row.claim_hash
+            AND v.batch_id = row.batch_id
+            AND v.primary_run_hash = row.primary_run_hash
 
-        MERGE (x:VerifiedClaimCorrection {id: row.id})
+        MERGE
+        (x:VerifiedClaimCorrection {id: row.id})
 
-        SET x += row,
+        ON CREATE SET
+            x += row,
             x.ready_for_resolution = true,
             x.eligible_for_propagation = false
 
         MERGE (c)-[:HAS_VERIFIED_CORRECTION]->(x)
         MERGE (v)-[:VERIFIED_CORRECTION]->(x)
 
-        SET v.status = 'corrected_verified',
+        SET
+            v.status = 'corrected_verified',
             v.eligible_for_propagation = false,
             v.correction_id = row.id,
             v.updated_at = row.updated_at
 
         RETURN count(x) AS n
-    """, rows=records).single()
+    """, rows=to_write).single()
 
     if (
         result is None
-        or result["n"] != len(records)
+        or result["n"] != len(to_write)
     ):
         raise RuntimeError(
-            "Numero di correzioni persistite "
-            "non coerente: rollback."
+            "Persistenza delle correzioni incompleta: "
+            "rollback"
         )
 
 
@@ -711,7 +1114,6 @@ def apply(args):
     verifications = read_jsonl(
         args.verified,
         "candidate_id",
-        allow_repeated=True,
     )
 
     secondary = (
@@ -728,6 +1130,46 @@ def apply(args):
         raise ValueError(
             "Giudice secondario uguale al primario."
         )
+        
+    if not candidates:
+        raise ValueError("Nessun candidato disponibile")
+    
+    if set(candidates) != set(verifications):
+        missing = set(candidates) - set(verifications)
+        extra = set(verifications) - set(candidates)
+        
+        raise ValueError(f"Candidati e riverifiche non corrispondono: mancanti={len(missing)}, extra={len(extra)}")
+    
+    models = {
+        v.get("model") for v in verifications.values()
+    }
+    
+    signatures = {
+        v.get("run_signature") for v in verifications.values()
+    }
+    
+    if (len(models) != 1 or None in models or "" in models or len(signatures) != 1 or None in signatures or "" in signatures):
+        raise ValueError("Modelli o firme delle riverifiche assenti o non uniformi")
+    
+    claim_ids = [candidate["claim_id"] for candidate in candidates.values()]
+    
+    if len(claim_ids) != len(set(claim_ids)):
+        raise ValueError("Piu' correzzioni per lo stesso claim")
+    
+    for candidate_id, candidate in candidates.items():
+        cid = candidate["claim_id"]
+        source = primary.get(cid)
+        verification = verifications[candidate_id]
+        
+        if source is None:
+            raise ValueError(f"Claim primario mancante: {cid}")
+        
+        if (source["verdict"] != "correction_proposed" or source["claim_hash"] != candidate["claim_hash"] or source["run_hash"] != candidate["primary_run_hash"] or source["model"] != candidate["primary_model"]):
+            raise ValueError(f"Provenienza del candidato incoerente: {cid}")
+        
+        if (verification["candidate_id"] != candidate_id or verification["candidate_hash"] != candidate["candidate_hash"] or verification["claim_id"] != cid or verification["claim_hash"] != candidate["claim_hash"] or
+            verification["model"] == candidate["primary_model"]):
+            raise ValueError(f"Riverifica incompatibile: {candidate_id}")
 
     counts = Counter()
     accepted = []
@@ -964,6 +1406,12 @@ def main():
     prepare_cmd.add_argument(
         "--overwrite",
         action="store_true",
+    )
+    prepare_cmd.add_argument("--report", default=None, help="CSV con cause di esclusione")
+    prepare_cmd.add_argument(
+        "--limit",
+        type=int,
+        default=0,
     )
 
     verify_cmd = sub.add_parser("verify")

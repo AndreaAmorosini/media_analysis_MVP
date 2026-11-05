@@ -6,3 +6,4 @@ output/
 Data/
 .pytest_cache/
 NEXT.md
+src/presskg.egg-info

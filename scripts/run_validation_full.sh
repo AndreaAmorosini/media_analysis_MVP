@@ -31,7 +31,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
     opts=()
     [[ -f "$PRIMARY" ]] && opts+=(--resume)
 
-    pixi run python scripts/validate_claims.py generate \
+    pixi run python -m presskg.validation primary generate \
         --model "$GEMMA31_ID" \
         --limit 0 \
         --context-chars 600 \
@@ -42,7 +42,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
 
     echo "=== 2/7 Preparazione correzioni ==="
 
-    pixi run python scripts/claim_correction_pipeline.py prepare \
+    pixi run python -m presskg.validation corrections prepare \
         --primary "$PRIMARY" \
         --out "$CANDIDATES" \
         --context-chars 600 \
@@ -50,7 +50,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
 
     echo "=== 3/7 Selezione claim secondari ==="
 
-    pixi run python scripts/auto_apply_claim_validations.py \
+    pixi run python -m presskg.validation decisions \
         select-secondary \
         --primary "$PRIMARY" \
         --out "$SELECTED" \
@@ -64,7 +64,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
         opts=()
         [[ -f "$SECONDARY" ]] && opts+=(--resume)
 
-        pixi run python scripts/validate_claims.py generate \
+        pixi run python -m presskg.validation primary generate \
             --model "$GEMMA12_ID" \
             --claim-ids-file "$SELECTED" \
             --limit 0 \
@@ -81,7 +81,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "scripts")
-from validate_claims import FIELDS
+from presskg.validation.primary import FIELDS
 
 with Path(sys.argv[1]).open(
     "w", newline="", encoding="utf-8"
@@ -97,7 +97,7 @@ PY
     [[ -f "$VERIFIED" ]] && opts+=(--resume)
 
     if [[ -s "$CANDIDATES" ]]; then
-        pixi run python scripts/claim_correction_pipeline.py verify \
+        pixi run python -m presskg.validation corrections verify \
             --candidates "$CANDIDATES" \
             --model "$GEMMA12_ID" \
             --out "$VERIFIED" \
@@ -132,7 +132,7 @@ fi
 
 echo "=== 6/7 Gate automatico ==="
 
-pixi run python scripts/auto_apply_claim_validations.py apply \
+pixi run python -m presskg.validation decisions apply \
     --primary "$PRIMARY" \
     --secondary "$SECONDARY" \
     --batch-id "$BATCH_ID" \
@@ -141,7 +141,7 @@ pixi run python scripts/auto_apply_claim_validations.py apply \
 
 echo "=== 7/7 Gate delle correzioni ==="
 
-pixi run python scripts/claim_correction_pipeline.py apply \
+pixi run python -m presskg.validation corrections apply \
     --primary "$PRIMARY" \
     --secondary "$SECONDARY" \
     --candidates "$CANDIDATES" \
