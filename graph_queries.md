@@ -326,3 +326,13 @@ WHERE
 
 RETURN s, rs, f, ro, o
 LIMIT 100
+
+# NEW
+## Canoniucal Fact Collegati Alla cNonical Entity Gori
+MATCH (c:CanonicalEntity)
+WHERE toLower(c.name) = 'gori'
+
+MATCH (c)-[r:CANONICAL_FACT]-(other:CanonicalEntity)
+
+RETURN c, r, other
+LIMIT 150;
