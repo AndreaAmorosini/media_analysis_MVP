@@ -240,23 +240,7 @@ class RegionFeatureExtractor:
         features.is_left_area = features.relative_x1 < 0.35
         features.is_right_area = features.relative_x0 > 0.60
         features.is_center_area = (features.relative_x0 > 0.15 and features.relative_x1 < 0.85)
-        
-    @staticmethod
-    def page_size_from_regions(page: PageRecord) -> tuple[float | None, float | None]:
-        max_x = None
-        max_y = None
-        
-        for region in page.regions:
-            if not region.bbox or len(region.bbox) != 4:
-                continue
             
-            _, _, x1, y1 = region.bbox
-            
-            max_x = x1 if max_x is None else max(max_x, x1)
-            max_y = y1 if max_y is None else max(max_y, y1)
-            
-        return max_x, max_y
-    
     @staticmethod
     def uppercase_ratio(text: str) -> float:
         letters = [char for char in text if char.isalpha()]

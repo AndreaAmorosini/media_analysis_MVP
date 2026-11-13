@@ -200,21 +200,7 @@ class TechnicalRegionClassifier:
             return ("ambiguous", None)
         
         return ("none", None)
-    
-    @staticmethod
-    def looks_like_watermark(region: Region, features) -> bool:
-        if features.has_watermark_marker:
-            return True
-        
-        if features.bbox_width is not None and features.bbox_height is not None:
-            if features.bbox_width < 25 and features.bbox_height > 150:
-                return True
             
-        opacity = region.style.get("median_opacity")
-        
-        if opacity is not None and opacity < 0.55:
-            return True
-        
     @staticmethod
     def looks_like_advertisement(features) -> bool:
         return features.has_ad_marker

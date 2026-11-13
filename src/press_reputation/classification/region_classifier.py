@@ -216,40 +216,7 @@ class ArticleSemanticClassifier:
         base = max(min(a1 - a0, b1 - b0), 1.0)
         
         return overlap / base
-    
-    @staticmethod
-    def like_advertisement(features: RegionFeatures) -> bool:
-        if features.has_ad_marker:
-            return True
         
-        if features.raw_text_lower.strip() in {"adv", "ads"}:
-            return True
-        
-        return False
-        
-    @staticmethod
-    def like_publication_date(features: RegionFeatures) -> bool:
-        if not features.has_date:
-            return False
-
-        if "da pag" in features.raw_text_lower:
-            return False
-
-        if features.has_foglio:
-            return False
-
-        if features.text_length > 40:
-            return False
-
-        return True
-    
-    @staticmethod
-    def like_composite_clipping_metadata(features: RegionFeatures) -> bool:
-        text = features.raw_text_lower
-        
-        has_original_page = "da pag" in text
-        return sum([has_original_page, features.has_foglio, features.has_date]) >= 2
-    
     @staticmethod
     def like_location(features: RegionFeatures) -> bool:
         if (features.entity_kind != "location" or features.entity_ambiguous):
@@ -286,33 +253,7 @@ class ArticleSemanticClassifier:
             return False
 
         return True
-    
-    @staticmethod
-    def like_header_metadata(features: RegionFeatures) -> bool:
-        metadata_markers = sum([
-            features.has_surface,
-            features.has_tiratura,
-            features.has_diffusione,
-            features.has_lettori,
-            features.has_dir_resp,
-            features.has_quotidiano
-        ])
         
-        if metadata_markers >= 1 and features.is_top_area:
-            return True
-        
-        if metadata_markers >= 2:
-            return True
-        
-        return False
-    
-    @staticmethod
-    def like_footer(features: RegionFeatures) -> bool:
-        if features.like_section_label:
-            return True
-        
-        return features.is_bottom_area and features.text_length <= 180
-    
     @staticmethod
     def like_navigation(features: RegionFeatures) -> bool:
         if features.has_navigation_marker:
@@ -495,16 +436,6 @@ class ArticleSemanticClassifier:
 
         return False
         
-    @staticmethod
-    def find_previous_title(
-        regions: list[Region],
-        current_index: int,
-    ) -> Region | None:
-        for previous in reversed(regions[:current_index]):
-            if previous.type == RegionType.ARTICLE_TITLE:
-                return previous
-
-        return None
     
     def is_continuation_page(self, page: PageRecord) -> bool:
         return (
