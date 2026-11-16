@@ -1,10 +1,11 @@
 """Test di lookup.py: normalizzazione chiavi, copertura, fuzzy gate, entità."""
+
 import pytest
 
-from press_reputation.lookup import (
-    normalize_entity_key,
-    match_coverage,
+from press_reputation.core.lookup import (
     can_reach_similarity,
+    match_coverage,
+    normalize_entity_key,
     resolve_entity,
 )
 
@@ -50,12 +51,20 @@ class TestResolveEntity:
     @pytest.fixture
     def known_newspaper(self) -> str | None:
         import json
-        from press_reputation.lookup import RESOURCE_DIR
+
+        from press_reputation.core.lookup import RESOURCE_DIR
+
         data = json.loads((RESOURCE_DIR / "newspaper.json").read_text(encoding="utf-8"))
         testate = data.get("testate") or []
         return testate[0].get("nome") if testate else None
 
-    @pytest.mark.skipif(not hasattr(__import__("press_reputation.lookup", fromlist=["RESOURCE_DIR"]), "RESOURCE_DIR"), reason="risorse assenti")
+    @pytest.mark.skipif(
+        not hasattr(
+            __import__("press_reputation.core.lookup", fromlist=["RESOURCE_DIR"]),
+            "RESOURCE_DIR",
+        ),
+        reason="risorse assenti",
+    )
     def test_exact_newspaper_match(self, known_newspaper):
         if not known_newspaper:
             pytest.skip("nessuna testata nel lessico")

@@ -4,7 +4,7 @@ from collections import defaultdict
 from urllib.parse import urlsplit
 
 from press_reputation.features import PageFeatureExtractor, PageFeatures
-from press_reputation.models.page import PageRecord, PageType, RegionType, SourceType
+from press_reputation.core.models.page import PageRecord, PageType, RegionType, SourceType
 
 
 class PageClassifier:
@@ -39,9 +39,11 @@ class PageClassifier:
         if page.pdf_page != 1 or features.clipping_marker_count:
             return False
         table = any(r.type == RegionType.TABLE for r in page.regions)
-        title = any("rassegna del" in (r.text or "").casefold()
-                    or "indice" == (r.text or "").strip().casefold()
-                    for r in page.regions)
+        title = any(
+            "rassegna del" in (r.text or "").casefold()
+            or "indice" == (r.text or "").strip().casefold()
+            for r in page.regions
+        )
         # Tables may be empty in PageRecord: table + review heading is evidence.
         # A page containing merely 'pag.' and navigation is NOT evidence.
         return table and (title or features.index_entry_count >= 3)
@@ -50,9 +52,10 @@ class PageClassifier:
         f = self.feature_extractor.extract(page)
         txt = self._text(page)
         section = " ".join((page.section or "").replace("_", " ").upper().split())
-        has_web_footer = any(r.type == RegionType.FOOTER and
-                                (r.text or "").strip().casefold() == "web"
-                                for r in page.regions)
+        has_web_footer = any(
+            r.type == RegionType.FOOTER and (r.text or "").strip().casefold() == "web"
+            for r in page.regions
+        )
         web_url = self._has_editorial_url(page)
         web_signals = (
             int(page.source.type == SourceType.WEB)
@@ -71,7 +74,11 @@ class PageClassifier:
             result = PageType.CLIPPING
         elif web_signals >= 2 or (web_url and f.clipping_marker_count == 0):
             result = PageType.WEB
-        elif f.text_char_count >= 500 and f.image_region_ratio <= 0.4 and not f.web_marker_count:
+        elif (
+            f.text_char_count >= 500
+            and f.image_region_ratio <= 0.4
+            and not f.web_marker_count
+        ):
             result = PageType.PURE_TEXT
         else:
             result = PageType.UNKNOWN
@@ -91,25 +98,46 @@ class PageClassifier:
             for i, page in enumerate(sequence):
                 if page.page_type != PageType.UNKNOWN:
                     continue
-                neighbours = [p for p in sequence[max(0, i - 1):i + 2]
-                                if p is not page and abs(p.pdf_page - page.pdf_page) == 1]
-                web_neighbours = [p for p in neighbours if p.page_type == PageType.WEB
-                                    and ((p.section or "") == (page.section or "")
-                                        or not p.section or not page.section)]
+                neighbours = [
+                    p
+                    for p in sequence[max(0, i - 1) : i + 2]
+                    if p is not page and abs(p.pdf_page - page.pdf_page) == 1
+                ]
+                web_neighbours = [
+                    p
+                    for p in neighbours
+                    if p.page_type == PageType.WEB
+                    and (
+                        (p.section or "") == (page.section or "")
+                        or not p.section
+                        or not page.section
+                    )
+                ]
                 if not web_neighbours:
                     continue
                 features = self.feature_extractor.extract(page)
-                if features.clipping_marker_count >= 1 or self._index_evidence(page, features):
+                if features.clipping_marker_count >= 1 or self._index_evidence(
+                    page, features
+                ):
                     continue
                 text = self._text(page)
                 supporting = (
                     self._has_editorial_url(page)
                     or page.source.type == SourceType.WEB
-                    or any(token in text for token in (
-                        "pagina", "visitatori unici", "condividi", "newsletter", "cookie"
-                    ))
-                    or any(r.type == RegionType.ARTICLE_BODY and len(r.text or "") > 180
-                            for r in page.regions)
+                    or any(
+                        token in text
+                        for token in (
+                            "pagina",
+                            "visitatori unici",
+                            "condividi",
+                            "newsletter",
+                            "cookie",
+                        )
+                    )
+                    or any(
+                        r.type == RegionType.ARTICLE_BODY and len(r.text or "") > 180
+                        for r in page.regions
+                    )
                 )
                 if supporting:
                     page.page_type = PageType.WEB

@@ -1,23 +1,24 @@
 """Test di reconstruction/: body grouping, reading order, clustering, assembler."""
+
 import pytest
 
-from press_reputation.models.page import RegionType
-from press_reputation.reconstruction.body_grouping import (
+from press_reputation.core.models.page import RegionType
+from press_reputation.reconstruction.assembly.article_draft_assembler import (
+    ArticleDraftAssembler,
+)
+from press_reputation.reconstruction.assembly.article_reading_order import (
+    ArticleReadingOrderResolver,
+)
+from press_reputation.reconstruction.assembly.body_grouping import (
     BodyGroupingResolver,
     horizontal_overlap,
     valid_bbox,
-)
-from press_reputation.reconstruction.article_reading_order import (
-    ArticleReadingOrderResolver,
-)
-from press_reputation.reconstruction.article_draft_assembler import (
-    ArticleDraftAssembler,
 )
 
 
 class TestGeometryHelpers:
     def test_valid_bbox(self, make_region):
-        from press_reputation.models.page import Region
+        from press_reputation.core.models.page import Region
 
         assert valid_bbox(make_region(bbox=[0, 0, 10, 10]))
         assert not valid_bbox(Region(bbox=None))
@@ -43,24 +44,44 @@ class TestBodyGrouping:
     def test_left_column_before_right(self, make_two_column_page):
         page = make_two_column_page()
         BodyGroupingResolver().enrich(page)
-        left_ids = {r.metadata["region_id"] for r in page.regions if "_L" in r.metadata["region_id"]}
-        right_ids = {r.metadata["region_id"] for r in page.regions if "_R" in r.metadata["region_id"]}
+        left_ids = {
+            r.metadata["region_id"]
+            for r in page.regions
+            if "_L" in r.metadata["region_id"]
+        }
+        right_ids = {
+            r.metadata["region_id"]
+            for r in page.regions
+            if "_R" in r.metadata["region_id"]
+        }
         orders = {
             r.metadata["region_id"]: r.metadata["body_reading_order"]
-            for r in page.regions if r.type == RegionType.ARTICLE_BODY
+            for r in page.regions
+            if r.type == RegionType.ARTICLE_BODY
         }
         assert max(orders[r] for r in left_ids) < min(orders[r] for r in right_ids)
 
     def test_different_article_ids_in_separate_columns(self, make_page, make_region):
         left = make_region(
-            RegionType.ARTICLE_BODY, text="A", bbox=[100, 220, 500, 240], article_id="a1", region_id="L1"
+            RegionType.ARTICLE_BODY,
+            text="A",
+            bbox=[100, 220, 500, 240],
+            article_id="a1",
+            region_id="L1",
         )
         right = make_region(
-            RegionType.ARTICLE_BODY, text="B", bbox=[520, 220, 900, 240], article_id="a2", region_id="R1"
+            RegionType.ARTICLE_BODY,
+            text="B",
+            bbox=[520, 220, 900, 240],
+            article_id="a2",
+            region_id="R1",
         )
         page = make_page(regions=[left, right])
         BodyGroupingResolver().enrich(page)
-        assert page.regions[0].metadata["body_group_id"] != page.regions[1].metadata["body_group_id"]
+        assert (
+            page.regions[0].metadata["body_group_id"]
+            != page.regions[1].metadata["body_group_id"]
+        )
 
     def test_rerun_is_idempotent_on_metadata(self, make_two_column_page):
         page = make_two_column_page()

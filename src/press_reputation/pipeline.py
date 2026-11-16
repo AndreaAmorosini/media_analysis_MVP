@@ -1,61 +1,98 @@
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
-from press_reputation.classification import (
-    PageClassifier,
-    RegionClassifier,
-    TechnicalRegionClassifier,
-)
+from press_reputation.classification import PageClassifier, TechnicalRegionClassifier
+from press_reputation.enrichment.author_resolver import AuthorResolver
 from press_reputation.classification.boilerplate_detector import (
     DocumentBoilerplateDetector,
+)
+from press_reputation.enrichment.editorial_header_arbitrator import (
+    EditorialHeaderArbitrator,
+)
+from press_reputation.enrichment.editorial_header_resolver import (
+    EditorialHeaderResolver,
+)
+from press_reputation.enrichment.editorial_preview_boundary import (
+    EditorialPreviewBoundaryResolver,
+)
+from press_reputation.enrichment.editorial_preview_relation import (
+    EditorialPreviewRelationResolver,
 )
 from press_reputation.classification.header_metadata_zone import (
     HeaderMetadataZoneDetector,
 )
-from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
+from press_reputation.classification.web.inline_intrusion import InlineIntrusionDetector
+from press_reputation.classification.metadata_seed_classifier import (
+    MetadataSeedClassifier,
+)
+from press_reputation.enrichment.pull_quote_resolver import PullQuoteResolver
 from press_reputation.classification.region_classifier import ArticleSemanticClassifier
-from press_reputation.classification.title_resolver import TitleResolver
+from press_reputation.enrichment.section_header_resolver import (
+    SectionHeaderResolver,
+)
+from press_reputation.enrichment.subtitle_resolver import SubtitleResolver
+from press_reputation.enrichment.title_resolver import TitleResolver
+from press_reputation.classification.web.url_harvester import UrlHarvester
+from press_reputation.enrichment.watermark_text_cleaner import WatermarkTextCleaner
+from press_reputation.classification.web.web_article_zone_resolver import (
+    WebArticleZoneResolver,
+)
+from press_reputation.classification.web.web_chrome_resolver import WebChromeResolver
+from press_reputation.classification.web.web_main_content import WebMainContentResolver
 from press_reputation.metadata import MetadataExtractor
-from press_reputation.models.page import PageRecord
+from press_reputation.core.models.page import PageRecord
+from press_reputation.ingestion.normalization.watermark_scrub import scrub_watermark_residue
 from press_reputation.reconstruction import BodyContinuationResolver
-from press_reputation.normalization.watermark_scrub import scrub_watermark_residue
-from press_reputation.style import PdfStyleEnricher
-from press_reputation.reconstruction.body_grouping import BodyGroupingResolver
-from press_reputation.classification.web_main_content import WebMainContentResolver
-from press_reputation.reconstruction.web_article_continuation import WebArticleContinuationResolver
-from press_reputation.reconstruction.article_flow import ArticleFlowResolver
-from press_reputation.reconstruction.flow_models import FlowLink
+from press_reputation.reconstruction.continuation.anchored_web_continuation import (
+    AnchoredWebContinuationResolver,
+)
+from press_reputation.reconstruction.clustering.facade import ArticleClusteringResolver
+from press_reputation.reconstruction.assembly.article_flow import ArticleFlowResolver
+from press_reputation.reconstruction.assembly.article_integrity import ArticleIntegrityReconciler
+from press_reputation.reconstruction.assembly.article_reading_order import (
+    ArticleReadingOrderResolver,
+)
+from press_reputation.reconstruction.assembly.body_grouping import BodyGroupingResolver
+from press_reputation.reconstruction.membership.body_membership_refinement import (
+    BodyMembershipRefinementResolver,
+)
+from press_reputation.reconstruction.membership.column_membership_propagation import (
+    ColumnMembershipPropagationResolver,
+)
+from press_reputation.reconstruction.continuation.cross_page_article_reconciler import (
+    CrossPageArticleReconciler,
+)
+from press_reputation.reconstruction.membership.editorial_fragment_refinement import (
+    EditorialFragmentRefinementResolver,
+)
+from press_reputation.reconstruction.assembly.flow_models import ArticleReadingOrder, FlowLink
+from press_reputation.reconstruction.continuation.general_continuation import (
+    GeneralContinuationResolver,
+)
+from press_reputation.reconstruction.membership.global_article_membership import (
+    GlobalArticleMembershipResolver,
+)
+from press_reputation.reconstruction.continuation.newspaper_continuation import (
+    NewspaperContinuationResolver,
+)
+from press_reputation.reconstruction.membership.orphan_proximity_fallback import (
+    OrphanProximityFallbackResolver,
+)
+from press_reputation.reconstruction.continuation.web_article_continuation import (
+    WebArticleContinuationResolver,
+)
 from press_reputation.review_index.matcher import ReviewIndexMatcher
 from press_reputation.review_index.models import ReviewIndexEntry, ReviewIndexMatch
-from press_reputation.classification.subtitle_resolver import SubtitleResolver
-from press_reputation.classification.section_header_resolver import SectionHeaderResolver
-from press_reputation.classification.author_resolver import AuthorResolver
-from press_reputation.reconstruction.article_clustering import ArticleClusteringResolver
-from press_reputation.reconstruction.orphan_proximity_fallback import OrphanProximityFallbackResolver
-from press_reputation.reconstruction.article_reading_order import ArticleReadingOrderResolver
-from press_reputation.reconstruction.flow_models import ArticleReadingOrder
-from press_reputation.reconstruction.newspaper_continuation import NewspaperContinuationResolver
-from press_reputation.classification.inline_intrusion import InlineIntrusionDetector
-from press_reputation.classification.pull_quote_resolver import PullQuoteResolver
-from press_reputation.classification.editorial_header_resolver import EditorialHeaderResolver
-from press_reputation.classification.watermark_text_cleaner import WatermarkTextCleaner
-from press_reputation.classification.web_chrome_resolver import WebChromeResolver
-from press_reputation.classification.url_harvester import UrlHarvester
-from press_reputation.classification.web_article_zone_resolver import WebArticleZoneResolver
-from press_reputation.reconstruction.body_membership_refinement import BodyMembershipRefinementResolver
-from press_reputation.classification.editorial_preview_boundary import EditorialPreviewBoundaryResolver
-from press_reputation.reconstruction.column_membership_propagation import ColumnMembershipPropagationResolver
-from press_reputation.reconstruction.cross_page_article_reconciler import CrossPageArticleReconciler
-from press_reputation.classification.editorial_header_arbitrator import EditorialHeaderArbitrator
-from press_reputation.reconstruction.global_article_membership import GlobalArticleMembershipResolver
-from press_reputation.reconstruction.article_integrity import ArticleIntegrityReconciler
-from press_reputation.reconstruction.general_continuation import GeneralContinuationResolver
-from press_reputation.reconstruction.editorial_fragment_refinement import EditorialFragmentRefinementResolver
-from press_reputation.classification.editorial_preview_relation import EditorialPreviewRelationResolver
-from press_reputation.reconstruction.anchored_web_continuation import AnchoredWebContinuationResolver
+from press_reputation.ingestion.style import PdfStyleEnricher
+
 
 class PageProcessingPipeline:
-    def __init__(self, enable_style_enrichment: bool = True, enable_boilerplate_detection: bool = True, enable_body_continuation: bool = True) -> None:
+    def __init__(
+        self,
+        enable_style_enrichment: bool = True,
+        enable_boilerplate_detection: bool = True,
+        enable_body_continuation: bool = True,
+    ) -> None:
         self.enable_style_enrichment = enable_style_enrichment
         self.enable_boilerplate_detection = enable_boilerplate_detection
         self.enable_body_continuation = enable_body_continuation
@@ -70,15 +107,15 @@ class PageProcessingPipeline:
         self.article_integrity_reconciler = ArticleIntegrityReconciler()
         self.orphan_proximity_fallback_resolver = OrphanProximityFallbackResolver()
         self.general_continuation_resolver = GeneralContinuationResolver()
-        self.editorial_fragment_refinement_resolver = EditorialFragmentRefinementResolver()
+        self.editorial_fragment_refinement_resolver = (
+            EditorialFragmentRefinementResolver()
+        )
         self.cross_page_article_reconciler = CrossPageArticleReconciler()
         self.column_membership_propagation_resolver = (
             ColumnMembershipPropagationResolver()
         )
         self.editorial_preview_boundary_resolver = EditorialPreviewBoundaryResolver()
-        self.body_membership_refinement_resolver = (
-            BodyMembershipRefinementResolver()
-        )
+        self.body_membership_refinement_resolver = BodyMembershipRefinementResolver()
         self.web_article_zone_resolver = WebArticleZoneResolver()
         self.web_chrome_resolver = WebChromeResolver()
         self.url_harvester = UrlHarvester()
@@ -104,14 +141,18 @@ class PageProcessingPipeline:
         self.web_article_continuation_resolver = WebArticleContinuationResolver()
         self.article_flow_resolver = ArticleFlowResolver()
         self.flow_links: list[FlowLink] = []
-        self.region_classifier = RegionClassifier()
         self.body_resolver = BodyContinuationResolver()
         self.metadata_extractor = MetadataExtractor()
         self.page_classifier = PageClassifier()
         self.metadata_seed_classifier = MetadataSeedClassifier()
         self.article_semantic_classifier = ArticleSemanticClassifier()
 
-    def process(self, pages: list[PageRecord], pdf_path: Path | None = None, review_index_entries: list[ReviewIndexEntry] | None = None) -> list[PageRecord]:
+    def process(
+        self,
+        pages: list[PageRecord],
+        pdf_path: Path | None = None,
+        review_index_entries: list[ReviewIndexEntry] | None = None,
+    ) -> list[PageRecord]:
         self.flow_links = []
         self.review_index_matches = []
         self.editorial_preview_relations = []
@@ -135,7 +176,9 @@ class PageProcessingPipeline:
         document_page_counts = Counter(page.document_id for page in pages)
         # Primo passaggio: classificazioni locali e metadata.
         for page in pages:
-            self.technical_classifier.enrich(page, document_page_count=document_page_counts[page.document_id])
+            self.technical_classifier.enrich(
+                page, document_page_count=document_page_counts[page.document_id]
+            )
             self.metadata_seed_classifier.enrich(page)
             self.header_zone_detector.enrich(page)
             self.article_semantic_classifier.enrich(page)
@@ -155,16 +198,20 @@ class PageProcessingPipeline:
         for page in pages:
             self.editorial_header_resolver.enrich(page)
             self.subtitle_resolver.enrich(page)
-            
+
         for page in pages:
-            self.editorial_preview_relations.extend(self.editorial_preview_relation_resolver.enrich(page))
+            self.editorial_preview_relations.extend(
+                self.editorial_preview_relation_resolver.enrich(page)
+            )
 
         self.editorial_preview_boundary_resolver.resolve(pages)
         # FIX 2: resolve competing headings BEFORE creating article IDs.
         self.editorial_header_arbitrator.prepare_identity(pages)
 
         if review_index_entries:
-            self.review_index_matches = self.review_index_matcher.match(pages, review_index_entries)
+            self.review_index_matches = self.review_index_matcher.match(
+                pages, review_index_entries
+            )
 
         entries_by_id = {entry.id: entry for entry in review_index_entries or []}
 
@@ -180,17 +227,25 @@ class PageProcessingPipeline:
         for page in pages:
             self.inline_intrusion_detector.enrich(page)
         self.web_article_continuation_resolver.enrich_document(pages)
-        self.article_clustering_resolver.assign_local(pages, self.review_index_matches, review_index_entries)
+        self.article_clustering_resolver.assign_local(
+            pages, self.review_index_matches, review_index_entries
+        )
         self.title_resolver.consolidate_candidates(pages)
         for page in pages:
             self.editorial_header_resolver.enrich(page)
 
         self.flow_links = self.article_flow_resolver.resolve(pages)
         self.article_clustering_resolver.link_accepted_flows(pages, self.flow_links)
-        self.article_clustering_resolver.detach_rejected_web_pages(pages, self.flow_links)
-        self.article_clustering_resolver.propagate_web_article_metadata(pages, self.flow_links)
+        self.article_clustering_resolver.detach_rejected_web_pages(
+            pages, self.flow_links
+        )
+        self.article_clustering_resolver.propagate_web_article_metadata(
+            pages, self.flow_links
+        )
 
-        newspaper_links = self.newspaper_continuation_resolver.resolve(pages, entries=review_index_entries, matches=self.review_index_matches)
+        newspaper_links = self.newspaper_continuation_resolver.resolve(
+            pages, entries=review_index_entries, matches=self.review_index_matches
+        )
         self.flow_links.extend(newspaper_links)
 
         for page in pages:
@@ -200,7 +255,9 @@ class PageProcessingPipeline:
             self.author_resolver.recover_abbreviated_signatures(page)
             self.pull_quote_resolver.enrich(page, pages)
 
-            self.article_clustering_resolver.assign_unassigned_body_in_owned_columns(page)
+            self.article_clustering_resolver.assign_unassigned_body_in_owned_columns(
+                page
+            )
             self.article_clustering_resolver.recover_column_continuations(page)
             self.article_clustering_resolver.assign_recovered_body(page)
 
@@ -220,20 +277,30 @@ class PageProcessingPipeline:
             self.article_clustering_resolver.assign_section_headers_and_media(page)
             self.body_grouping_resolver.enrich(page)
 
-        self.cross_page_reconciliations = self.cross_page_article_reconciler.resolve(pages, self.flow_links)
+        self.cross_page_reconciliations = self.cross_page_article_reconciler.resolve(
+            pages, self.flow_links
+        )
         # FIX 5: independent document-level signals when a web wrapper marker is absent.
-        self.anchored_web_links = self.anchored_web_continuation_resolver.enrich_document(pages)
+        self.anchored_web_links = (
+            self.anchored_web_continuation_resolver.enrich_document(pages)
+        )
         self.flow_links.extend(self.anchored_web_links)
-        self.general_continuation_report = self.general_continuation_resolver.resolve(pages, self.flow_links)
+        self.general_continuation_report = self.general_continuation_resolver.resolve(
+            pages, self.flow_links
+        )
         # Reconsider orphan columns on continuation pages after ownership propagates.
         self.global_membership_report.extend(
             self.global_article_membership_resolver.enrich_document(pages)
         )
         # FIX 7: ultima risorsa per body orfano con un solo titolo candidato sopra.
         # Ogni assegnazione è marcata proximity_fallback_v1 e finisce in review.
-        self.orphan_proximity_report = self.orphan_proximity_fallback_resolver.enrich_document(pages)
+        self.orphan_proximity_report = (
+            self.orphan_proximity_fallback_resolver.enrich_document(pages)
+        )
         # FIX 6: cautious recovery of prose fragments, not formatting headings.
-        self.editorial_fragment_report = self.editorial_fragment_refinement_resolver.enrich_document(pages)
+        self.editorial_fragment_report = (
+            self.editorial_fragment_refinement_resolver.enrich_document(pages)
+        )
         for page in pages:
             self.section_header_resolver.enrich(page)
             self.article_clustering_resolver.assign_section_headers_and_media(page)

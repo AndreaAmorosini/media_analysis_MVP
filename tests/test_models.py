@@ -1,8 +1,9 @@
 """Test dei modelli Pydantic: PageRecord, Region, FlowLink, ArticleDraft."""
+
 import pytest
 from pydantic import ValidationError
 
-from press_reputation.models.page import PageRecord, Region, RegionType, PageType
+from press_reputation.core.models.page import PageRecord, PageType, Region, RegionType
 
 
 class TestRegion:
@@ -51,7 +52,10 @@ class TestPageRecord:
 
 class TestEnumValuesStr:
     def test_region_type_serializes_as_value(self, make_region):
-        assert make_region(type=RegionType.ARTICLE_TITLE).model_dump(mode="json")["type"] == "article_title"
+        assert (
+            make_region(type=RegionType.ARTICLE_TITLE).model_dump(mode="json")["type"]
+            == "article_title"
+        )
 
     def test_page_type_membership(self):
         assert {p.value for p in PageType} >= {"clipping", "web", "index"}

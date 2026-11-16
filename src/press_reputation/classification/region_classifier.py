@@ -1,75 +1,106 @@
 import re
 from statistics import median
 
-from press_reputation.classification.metadata_seed_classifier import MetadataSeedClassifier
+from press_reputation.classification.metadata_seed_classifier import (
+    MetadataSeedClassifier,
+)
+from press_reputation.classification.scopes import is_blocked_scope
+from press_reputation.core.config import RegionClassificationConfig
 from press_reputation.features import RegionFeatureExtractor, RegionFeatures
 from press_reputation.features.region_features import entity_lookup_metadata
-from press_reputation.models.page import PageRecord, Region, RegionType
-from press_reputation.config import RegionClassificationConfig
+from press_reputation.core.models.page import PageRecord, Region, RegionType
 
 PROTECTED_REGION_TYPES = {
     RegionType.CAPTION,
     RegionType.ARTICLE_POSITION_THUMBNAIL,
-    RegionType.ARTICLE_KICKER
+    RegionType.ARTICLE_KICKER,
 }
 
+
 class ArticleSemanticClassifier:
-    #Classifica le regioni di una pagina in base a caratteristiche specifiche (testuali e di layout)
-    
+    # Classifica le regioni di una pagina in base a caratteristiche specifiche (testuali e di layout)
+
     def __init__(self, config: RegionClassificationConfig | None = None) -> None:
         self.config = config or RegionClassificationConfig()
         self.feature_extractor = RegionFeatureExtractor()
-    
+
     def enrich(self, page: PageRecord) -> PageRecord:
         self.classify_individual_regions(page)
         return page
-        
+
     def classify_individual_regions(self, page: PageRecord) -> None:
         body_font_size = self.body_font_reference(page)
-        
+
         for region in page.regions:
             features = self.feature_extractor.extract(region, page)
-            
-            if (features.entity_kind == "location" and not features.entity_ambiguous):
+
+            if features.entity_kind == "location" and not features.entity_ambiguous:
                 lookup_data = entity_lookup_metadata(features)
                 if lookup_data is not None:
                     region.metadata.setdefault("entity_lookup", lookup_data)
-                
+
             self.enrich_region_metadata(region, features)
 
-            region.type = self.classify(region, page, features, body_font_size=body_font_size)
-            
-            if (region.type == RegionType.LOCATION and features.municipalities):
-                region.metadata["municipalities"] = (features.municipalities)
-            
+            region.type = self.classify(
+                region, page, features, body_font_size=body_font_size
+            )
+
+            if region.type == RegionType.LOCATION and features.municipalities:
+                region.metadata["municipalities"] = features.municipalities
+
     def classify_article_section_headers(self, page: PageRecord) -> None:
         body_seen = False
-        
-        ordered = sorted([region for region in page.regions if (region.bbox and not region.metadata.get("in_header_metadata_zone")
-                                                                and not region.exclude_from_article_text)], key = lambda region: (region.bbox[1], region.bbox[0]))
-        
+
+        ordered = sorted(
+            [
+                region
+                for region in page.regions
+                if (
+                    region.bbox
+                    and not region.metadata.get("in_header_metadata_zone")
+                    and not region.exclude_from_article_text
+                )
+            ],
+            key=lambda region: (region.bbox[1], region.bbox[0]),
+        )
+
         for region in ordered:
             if region.type == RegionType.ARTICLE_BODY:
                 body_seen = True
                 continue
-            
-            if (body_seen and region.raw_label == "section_header" and region.type in {RegionType.UNKNOWN, RegionType.ARTICLE_TITLE}
-                and region.text and not region.exclude_from_article_text):
+
+            if (
+                body_seen
+                and region.raw_label == "section_header"
+                and region.type in {RegionType.UNKNOWN, RegionType.ARTICLE_TITLE}
+                and region.text
+                and not region.exclude_from_article_text
+            ):
                 region.type = RegionType.ARTICLE_SECTION_HEADER
-    
-    def classify(self, region: Region, page: PageRecord, features: RegionFeatures, *, body_font_size: float = None) -> RegionType:
-        #L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
+
+    def classify(
+        self,
+        region: Region,
+        page: PageRecord,
+        features: RegionFeatures,
+        *,
+        body_font_size: float = None,
+    ) -> RegionType:
+        # L'ordine delle condizioni è importante: alcune categorie hanno priorità su altre. Ad esempio, se una regione è già classificata come CAPTION, non verrà riclassificata come ARTICLE_TITLE anche se soddisfa i criteri per quest'ultima.
         recovery = region.metadata.get("text_fragment_recovery", {})
         if recovery.get("auto_classification_allowed") is False:
             return region.type
-        
-        if (region.exclude_from_article_text or region.metadata.get("in_header_metadata_zone") or 
-                region.type in MetadataSeedClassifier.SEED_TYPES):
+
+        if (
+            region.exclude_from_article_text
+            or region.metadata.get("in_header_metadata_zone")
+            or region.type in MetadataSeedClassifier.SEED_TYPES
+        ):
             return region.type
-        
+
         if region.metadata.get("in_header_metadata_zone"):
             return region.type
-        
+
         if region.type in {
             RegionType.CAPTION,
             RegionType.IMAGE,
@@ -80,13 +111,13 @@ class ArticleSemanticClassifier:
             RegionType.PULL_QUOTE,
             RegionType.TABLE,
             RegionType.INFOGRAPHIC,
-            RegionType.ARTICLE_SECTION_HEADER
+            RegionType.ARTICLE_SECTION_HEADER,
         }:
             return region.type
-        
+
         if region.type in PROTECTED_REGION_TYPES:
             return region.type
-                
+
         if region.type == RegionType.CAPTION:
             return RegionType.CAPTION
 
@@ -106,41 +137,48 @@ class ArticleSemanticClassifier:
             return RegionType.RELATED_CONTENT
 
         if region.type == RegionType.UNKNOWN:
-            accepted, evidence = self.is_body_seed(region, features, page=page, body_font_size=body_font_size)
-            
-            if (features.word_count >= self.config.body_seed_min_words and region.raw_label == "text"):
+            accepted, evidence = self.is_body_seed(
+                region, features, page=page, body_font_size=body_font_size
+            )
+
+            if (
+                features.word_count >= self.config.body_seed_min_words
+                and region.raw_label == "text"
+            ):
                 region.metadata["body_seed_evaluation"] = {
                     "accepted": accepted,
                     "evidence": evidence,
                     "word_count": features.word_count,
-                    "method": "semantic_body_seed_v1"
+                    "method": "semantic_body_seed_v1",
                 }
-                
+
             if accepted:
                 region.metadata["body_role"] = "seed"
                 region.metadata["body_detection_method"] = "semantic_body_seed_v1"
-                
+
                 return RegionType.ARTICLE_BODY
-        
-        return region.type  # Mantieni il tipo originale se non corrisponde a nessuna categoria nota
-    
+
+        return (
+            region.type
+        )  # Mantieni il tipo originale se non corrisponde a nessuna categoria nota
+
     def enrich_region_metadata(self, region: Region, features: RegionFeatures) -> None:
         text = region.text or ""
-        
+
         original_page = self.extract_original_page(text)
         publication_date = self.extract_publication_date_text(text)
         sheet_info = self.extract_sheet_info(text)
-        
+
         if original_page is not None:
             region.metadata["original_page"] = original_page
-            
+
         if publication_date is not None:
             region.metadata["publication_date"] = publication_date
-            
+
         if sheet_info is not None:
             region.metadata["sheet_current"] = sheet_info[0]
             region.metadata["sheet_total"] = sheet_info[1]
-            
+
     @staticmethod
     def extract_original_page(text: str) -> int | None:
         import re
@@ -151,7 +189,6 @@ class ArticleSemanticClassifier:
             return None
 
         return int(match.group(1))
-
 
     @staticmethod
     def extract_sheet_info(text: str) -> tuple[int, int | None] | None:
@@ -170,7 +207,6 @@ class ArticleSemanticClassifier:
         total = int(match.group(2)) if match.group(2) else None
 
         return current, total
-
 
     @staticmethod
     def extract_publication_date_text(text: str) -> str | None:
@@ -209,19 +245,19 @@ class ArticleSemanticClassifier:
             return None
 
         return date(year, month, day).isoformat()
-    
+
     @staticmethod
     def overlap_ratio(a0: float, a1: float, b0: float, b1: float) -> float:
         overlap = max(0.0, min(a1, b1) - max(a0, b0))
         base = max(min(a1 - a0, b1 - b0), 1.0)
-        
+
         return overlap / base
-        
+
     @staticmethod
     def like_location(features: RegionFeatures) -> bool:
-        if (features.entity_kind != "location" or features.entity_ambiguous):
+        if features.entity_kind != "location" or features.entity_ambiguous:
             return False
-        
+
         if "," in features.raw_text_lower:
             return False
 
@@ -253,18 +289,17 @@ class ArticleSemanticClassifier:
             return False
 
         return True
-        
+
     @staticmethod
     def like_navigation(features: RegionFeatures) -> bool:
         if features.has_navigation_marker:
             return True
-        
+
         if features.has_url and features.word_count <= 8:
             return True
-        
+
         return False
-        
-    
+
     @staticmethod
     def like_related_content(features: RegionFeatures) -> bool:
         return (
@@ -272,7 +307,6 @@ class ArticleSemanticClassifier:
             or features.has_newsletter
             or features.has_share_marker
         )
-        
 
     def is_body_seed(
         self,
@@ -291,31 +325,21 @@ class ArticleSemanticClassifier:
             or region.exclude_from_article_text
             or region.metadata.get("in_header_metadata_zone")
             or region.boilerplate
-            or region.metadata.get(
-                "inside_article_position_thumbnail"
-            )
+            or region.metadata.get("inside_article_position_thumbnail")
         ):
             return False, ["protected_or_boilerplate"]
 
         # 2. Escludi contenuti editoriali secondari.
-        if region.metadata.get("content_scope") in {
-            "related",
-            "advertisement",
-            "boilerplate",
-            "non_main",
-        }:
+        if is_blocked_scope(region):
             return False, ["external_content_scope"]
 
         # 3. Verifica minima del testo.
         if (
             not region.text
             or region.raw_label != "text"
-            or features.word_count
-            < self.config.body_seed_min_words
+            or features.word_count < self.config.body_seed_min_words
         ):
-            return False, [
-                "insufficient_text_or_docling_label"
-            ]
+            return False, ["insufficient_text_or_docling_label"]
 
         # 4. Escludi indicatori tecnici e navigation.
         if (
@@ -327,9 +351,7 @@ class ArticleSemanticClassifier:
             or features.has_rights_notice_marker
             or features.has_watermark_marker
         ):
-            return False, [
-                "navigation_related_or_techinical_marker"
-            ]
+            return False, ["navigation_related_or_techinical_marker"]
 
         # 5. FIX: non escludere più automaticamente
         # un paragrafo che contiene parole come
@@ -369,11 +391,7 @@ class ArticleSemanticClassifier:
         # 9. Compatibilità tipografica con il body.
         candidate_size = features.median_font_size
 
-        if (
-            body_font_size
-            and candidate_size
-            and candidate_size > 0
-        ):
+        if body_font_size and candidate_size and candidate_size > 0:
             ratio = candidate_size / body_font_size
 
             if not (
@@ -393,15 +411,14 @@ class ArticleSemanticClassifier:
             features.bold_ratio is not None
             and features.bold_evidence_fraction
             >= self.config.body_seed_min_bold_evidence_fraction
-            and features.bold_ratio
-            > self.config.body_seed_max_bold_ratio
+            and features.bold_ratio > self.config.body_seed_max_bold_ratio
         ):
             return False, ["predominantly_bold"]
 
         evidence.append("no_editorial_or_technical_veto")
 
         return True, evidence
-    
+
     @staticmethod
     def like_article_position_thumbnail(features: RegionFeatures) -> bool:
         if features.raw_label != "picture":
@@ -416,9 +433,8 @@ class ArticleSemanticClassifier:
         relative_area = 0.0
         if features.relative_x0 is not None and features.relative_x1 is not None:
             if features.relative_y0 is not None and features.relative_y1 is not None:
-                relative_area = (
-                    (features.relative_x1 - features.relative_x0)
-                    * (features.relative_y1 - features.relative_y0)
+                relative_area = (features.relative_x1 - features.relative_x0) * (
+                    features.relative_y1 - features.relative_y0
                 )
 
         # Miniatura tecnica: piccola, tipicamente in basso/destra.
@@ -435,31 +451,36 @@ class ArticleSemanticClassifier:
             return True
 
         return False
-        
-    
+
     def is_continuation_page(self, page: PageRecord) -> bool:
         return (
             page.clipping is not None
             and page.clipping.sheet_current is not None
             and page.clipping.sheet_current > 1
         )
-        
+
     def body_font_reference(self, page: PageRecord) -> float | None:
         sizes = []
-        
+
         for region in page.regions:
-            if(region.raw_label != "text" or not region.text or region.exclude_from_article_text or
-                region.metadata.get("in_header_metadata_zone") or region.type != RegionType.UNKNOWN):
+            if (
+                region.raw_label != "text"
+                or not region.text
+                or region.exclude_from_article_text
+                or region.metadata.get("in_header_metadata_zone")
+                or region.type != RegionType.UNKNOWN
+            ):
                 continue
-            
-            if (len(re.findall(r"\w+", region.text)) < self.config.body_seed_min_words):
+
+            if len(re.findall(r"\w+", region.text)) < self.config.body_seed_min_words:
                 continue
-            
+
             size = region.style.get("median_font_size")
-            
+
             if isinstance(size, (int, float)) and size > 0:
                 sizes.append(size)
-                
+
         return median(sizes) if sizes else None
-        
+
+
 RegionClassifier = ArticleSemanticClassifier

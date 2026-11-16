@@ -1,16 +1,16 @@
 """Test di classification/: statici euristici e resolver locali."""
 
-from press_reputation.classification.subtitle_resolver import SubtitleResolver
-from press_reputation.classification.title_resolver import TitleResolver
+from press_reputation.enrichment.subtitle_resolver import SubtitleResolver
 from press_reputation.classification.technical_region_classifier import (
     TechnicalRegionClassifier,
 )
-from press_reputation.classification.url_harvester import (
+from press_reputation.enrichment.title_resolver import TitleResolver
+from press_reputation.classification.web.url_harvester import (
     has_path,
     normalize_candidate,
     unwrap_urls,
 )
-from press_reputation.models.page import RegionType
+from press_reputation.core.models.page import RegionType
 
 
 class TestStampCodeText:
@@ -49,7 +49,9 @@ class TestChromeText:
 
 class TestUrlHarvesterHelpers:
     def test_unwrap_single_url(self):
-        assert unwrap_urls("vai su https://esempio.it/articolo-123 ok") == ["https://esempio.it/articolo-123"]
+        assert unwrap_urls("vai su https://esempio.it/articolo-123 ok") == [
+            "https://esempio.it/articolo-123"
+        ]
 
     def test_unwrap_wrapped_url(self):
         # URL spezzato a fine riga sull'ultimo carattere utile
@@ -83,7 +85,12 @@ class TestTechnicalRegionClassifier:
     def test_enrich_runs_and_returns_page(self, make_region, make_page):
         page = make_page(
             regions=[
-                make_region(RegionType.UNKNOWN, text="Tiratura: 12.000", bbox=[0.0, 0.0, 900.0, 60.0], region_id="hd"),
+                make_region(
+                    RegionType.UNKNOWN,
+                    text="Tiratura: 12.000",
+                    bbox=[0.0, 0.0, 900.0, 60.0],
+                    region_id="hd",
+                ),
             ]
         )
         result = TechnicalRegionClassifier().enrich(page, document_page_count=1)
@@ -118,5 +125,7 @@ class TestTitleResolverEligibility:
 
     def test_invalid_bbox_blocked(self, make_region):
         resolver = TitleResolver()
-        region = make_region(RegionType.ARTICLE_TITLE, text="Titolo", bbox=[0.0, 0.0, 0.0, 0.0])
+        region = make_region(
+            RegionType.ARTICLE_TITLE, text="Titolo", bbox=[0.0, 0.0, 0.0, 0.0]
+        )
         assert resolver.eligible(region) is False

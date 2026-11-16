@@ -1,4 +1,5 @@
 """Test di features/region_features.py: flag testuali e geometria relativa."""
+
 import pytest
 
 from press_reputation.features import RegionFeatureExtractor
@@ -47,16 +48,24 @@ class TestGeometry:
         assert features.is_right_area is True
 
     def test_top_area(self, extractor, make_region, make_page):
-        features = extractor.extract(make_region(bbox=[0.0, 0.0, 900.0, 100.0]), make_page())
+        features = extractor.extract(
+            make_region(bbox=[0.0, 0.0, 900.0, 100.0]), make_page()
+        )
         assert features.is_top_area is True
 
     def test_margin_top_bottom(self, extractor, make_region, make_page):
-        features = extractor.extract(make_region(bbox=[0.0, 0.0, 900.0, 100.0]), make_page())
-        assert features.is_top_area ^ features.is_bottom_area or (features.is_top_area and not features.is_bottom_area)
+        features = extractor.extract(
+            make_region(bbox=[0.0, 0.0, 900.0, 100.0]), make_page()
+        )
+        assert features.is_top_area ^ features.is_bottom_area or (
+            features.is_top_area and not features.is_bottom_area
+        )
 
 
 class TestEntityFeature:
     def test_without_entity(self, extractor, make_region, make_page):
-        features = extractor.extract(make_region(text="generico testo"), make_page(), include_entity=False)
+        features = extractor.extract(
+            make_region(text="generico testo"), make_page(), include_entity=False
+        )
         assert features.entity_kind is None
         assert features.municipalities == []

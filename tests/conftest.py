@@ -3,11 +3,18 @@
 I test operano su pagine artificiali (bbox su griglia A4-like 1000x1400 pt)
 cosi' ogni resolver e' esercitato senza Docling, OCR o file reali.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from press_reputation.models.page import PageRecord, PageType, Region, RegionType, SourceInfo
+from press_reputation.core.models.page import (
+    PageRecord,
+    PageType,
+    Region,
+    RegionType,
+    SourceInfo,
+)
 
 
 def pytest_addoption(parser):

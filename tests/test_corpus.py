@@ -17,6 +17,7 @@ tests/regenerate_corpus_baselines.py dopo modifiche intenzionali.
 La pipeline gira UNA volta per caso: i 6 test del caso condividono
 l'output tramite la fixture class-scoped `case_output`.
 """
+
 from __future__ import annotations
 
 import glob
@@ -86,12 +87,24 @@ def case_output(request, case, data_root, tmp_path):
         )
         doc_dir = tmp_path / pdf.stem.replace(" ", "_")
         records_path = doc_dir / "flow" / "article_records.json"
-        records = json.loads(records_path.read_text(encoding="utf-8")) if records_path.exists() else []
+        records = (
+            json.loads(records_path.read_text(encoding="utf-8"))
+            if records_path.exists()
+            else []
+        )
         page_files = sorted(glob.glob(str(doc_dir / "pages" / "page_*.json")))
-        pages = [json.loads(Path(path).read_text(encoding="utf-8")) for path in page_files]
+        pages = [
+            json.loads(Path(path).read_text(encoding="utf-8")) for path in page_files
+        ]
         drafts_path = doc_dir / "flow" / "article_drafts.json"
-        drafts = json.loads(drafts_path.read_text(encoding="utf-8")) if drafts_path.exists() else []
-        _RUN_CACHE[case["id"]] = dict(pdf=pdf, records=records, pages=pages, drafts=drafts)
+        drafts = (
+            json.loads(drafts_path.read_text(encoding="utf-8"))
+            if drafts_path.exists()
+            else []
+        )
+        _RUN_CACHE[case["id"]] = dict(
+            pdf=pdf, records=records, pages=pages, drafts=drafts
+        )
     return _RUN_CACHE[case["id"]]
 
 
@@ -126,7 +139,9 @@ class TestRealPdfRegression:
     def test_ready_records_have_title_and_body(self, case_output):
         for record in case_output["records"]:
             if record.get("finalization_status") == "ready":
-                assert (record.get("title") or "").strip(), f"articolo ready senza titolo: {record['id']}"
+                assert (record.get("title") or "").strip(), (
+                    f"articolo ready senza titolo: {record['id']}"
+                )
                 assert (record.get("body_clean") or record.get("body") or "").strip()
 
     def test_pages_have_regions(self, case_output):
@@ -139,7 +154,9 @@ class TestRealPdfRegression:
 
     def test_matches_baseline(self, case_output):
         if not self.expected:
-            pytest.skip("baseline non presente nel manifest: rigenerare con regenerate_corpus_baselines.py")
+            pytest.skip(
+                "baseline non presente nel manifest: rigenerare con regenerate_corpus_baselines.py"
+            )
         assert len(case_output["pages"]) >= self.expected.get("min_pages", 0)
         assert len(case_output["records"]) == self.expected.get("articles"), (
             f"numero articoli variato: attesi {self.expected.get('articles')}, "

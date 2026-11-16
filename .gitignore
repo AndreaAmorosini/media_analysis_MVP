@@ -1,5 +1,5 @@
 # pixi environments
-.pixi/*
+.pixi/
 !.pixi/config.toml
 Data/
 src/data/
@@ -10,3 +10,7 @@ Risultati/
 critical/
 Risultati*/
 corpus_manifest.json
+.ruff_cache/
+.pytest_cache/
+pytest.ini
+**_OLD.**

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from press_reputation.models.page import PageRecord, RegionType
+
+from press_reputation.core.models.page import PageRecord, RegionType
 
 # Le regioni editoriali non portano evidenza strutturale sulla pagina.
 EDITORIAL_REGION_TYPES = {
@@ -12,9 +13,10 @@ EDITORIAL_REGION_TYPES = {
     RegionType.TABLE,
 }
 
+
 class PageFeatures(BaseModel):
     pdf_page: int
-    
+
     text_char_count: int = 0
     region_count: int = 0
     text_region_count: int = 0
@@ -25,7 +27,7 @@ class PageFeatures(BaseModel):
     article_body_count: int = 0
     footer_count: int = 0
     unknown_count: int = 0
-    
+
     index_entry_count: int = 0
 
     has_url: bool = False
@@ -47,7 +49,8 @@ class PageFeatures(BaseModel):
     text_region_ratio: float = 0.0
     image_region_ratio: float = 0.0
     unknown_region_ratio: float = 0.0
-    
+
+
 class PageFeatureExtractor:
     def extract(self, page: PageRecord) -> PageFeatures:
         text = self.page_text(page)
@@ -58,7 +61,12 @@ class PageFeatureExtractor:
         def count_type(value: str) -> int:
             return sum(1 for region in page.regions if region.type.value == value)
 
-        index_entry_count = sum(1 for region in page.regions if region.text and ("pag." in region.text.lower() or "pagina" in region.text.lower()))
+        index_entry_count = sum(
+            1
+            for region in page.regions
+            if region.text
+            and ("pag." in region.text.lower() or "pagina" in region.text.lower())
+        )
 
         # I marker strutturali (foglio, tiratura, diffusione...) sono evidenti
         # solo se compaiono in regioni NON editoriali: una parola come
@@ -67,8 +75,7 @@ class PageFeatureExtractor:
         structural_lower = " ".join(
             (region.text or "")
             for region in page.regions
-            if (region.text or "").strip()
-            and region.type not in EDITORIAL_REGION_TYPES
+            if (region.text or "").strip() and region.type not in EDITORIAL_REGION_TYPES
         ).lower()
 
         # text_region_count = sum(1 for region in page.regions if region.text and region.text.strip())
@@ -90,9 +97,13 @@ class PageFeatureExtractor:
 
         has_newsletter = "newsletter" in structural_lower
         has_related_content_marker = (
-            "articoli correlati" in structural_lower or "ultimi articoli" in structural_lower or "leggi anche" in structural_lower
+            "articoli correlati" in structural_lower
+            or "ultimi articoli" in structural_lower
+            or "leggi anche" in structural_lower
         )
-        has_cookie_marker = "cookie" in structural_lower or "privacy policy" in structural_lower
+        has_cookie_marker = (
+            "cookie" in structural_lower or "privacy policy" in structural_lower
+        )
 
         clipping_marker_count = sum(
             [
@@ -114,7 +125,7 @@ class PageFeatureExtractor:
                 has_cookie_marker,
             ]
         )
-        
+
         image_count = count_type("image") + count_type("article_position_thumbnail")
         unknown_count = count_type("unknown")
 
@@ -145,11 +156,15 @@ class PageFeatureExtractor:
             image_region_ratio=self.safe_ratio(image_count, region_count),
             unknown_region_ratio=self.safe_ratio(unknown_count, region_count),
         )
-        
+
     @staticmethod
     def page_text(page: PageRecord) -> str:
-        return "\n".join(region.text.strip() for region in page.regions if region.text and region.text.strip())
-    
+        return "\n".join(
+            region.text.strip()
+            for region in page.regions
+            if region.text and region.text.strip()
+        )
+
     @staticmethod
     def safe_ratio(value: int, total: int) -> float:
         if total == 0:

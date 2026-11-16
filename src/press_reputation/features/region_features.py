@@ -1,18 +1,21 @@
 import re
+
 from pydantic import BaseModel
-from press_reputation.models.page import PageRecord, Region
-from press_reputation.lookup import resolve_entity
+
+from press_reputation.core.lookup import resolve_entity
+from press_reputation.core.models.page import PageRecord, Region
+
 
 class RegionFeatures(BaseModel):
     raw_text_lower: str = ""
     text_length: int = 0
     word_count: int = 0
     uppercase_ratio: float = 0.0
-    
+
     has_url: bool = False
     has_email: bool = False
     has_date: bool = False
-    
+
     has_foglio: bool = False
     has_surface: bool = False
     has_tiratura: bool = False
@@ -20,20 +23,20 @@ class RegionFeatures(BaseModel):
     has_lettori: bool = False
     has_dir_resp: bool = False
     has_quotidiano: bool = False
-    
+
     has_author_marker: bool = False
     has_ad_marker: bool = False
     has_rights_notice_marker: bool = False
     has_watermark_marker: bool = False
-    
+
     has_newsletter: bool = False
     has_share_marker: bool = False
     has_related_marker: bool = False
     has_navigation_marker: bool = False
     has_cookie_marker: bool = False
-        
+
     municipalities: list[dict] = []
-    
+
     entity_kind: str | None = None
     entity_method: str | None = None
     entity_canonical_name: str | None = None
@@ -42,10 +45,10 @@ class RegionFeatures(BaseModel):
     entity_match_coverage: float | None = None
     entity_priority: int | None = None
     entity_ambiguous: bool = False
-    
+
     like_section_label: bool = False
     like_index_entry: bool = False
-    
+
     bbox_x0: float | None = None
     bbox_y0: float | None = None
     bbox_x1: float | None = None
@@ -53,21 +56,21 @@ class RegionFeatures(BaseModel):
     bbox_width: float | None = None
     bbox_height: float | None = None
     bbox_area: float | None = None
-    
+
     page_width: float | None = None
     page_height: float | None = None
-    
+
     relative_x0: float | None = None
     relative_y0: float | None = None
     relative_x1: float | None = None
     relative_y1: float | None = None
-    
+
     is_top_area: bool = False
     is_bottom_area: bool = False
     is_left_area: bool = False
     is_right_area: bool = False
     is_center_area: bool = False
-    
+
     font_names: list[str] = []
     dominant_font: str | None = None
     median_font_size: float | None = None
@@ -81,13 +84,14 @@ class RegionFeatures(BaseModel):
     style_match_count: int = 0
     bold_evidence_fraction: float = 0.0
     italic_evidence_fraction: float = 0.0
-    
+
     raw_label: str | None = None
-    
+
+
 def entity_lookup_metadata(features: RegionFeatures) -> dict | None:
     if features.entity_kind is None:
         return None
-    
+
     return {
         "kind": features.entity_kind,
         "method": features.entity_method,
@@ -98,20 +102,28 @@ def entity_lookup_metadata(features: RegionFeatures) -> dict | None:
         "priority": features.entity_priority,
         "ambiguous": features.entity_ambiguous,
     }
+
+
 class RegionFeatureExtractor:
-    def extract(self, region: Region, page: PageRecord, *, include_entity: bool = True) -> RegionFeatures:
+    def extract(
+        self, region: Region, page: PageRecord, *, include_entity: bool = True
+    ) -> RegionFeatures:
         text = region.text or ""
         lower = text.lower()
         normalized_line = lower.strip()
         words = re.findall(r"\w+", text)
-        
-        entity = (resolve_entity(text) if include_entity else None)
-        accepted = (entity if entity is not None and not entity.ambiguous else None)
-        
-        municipalities = (accepted.record["municipalities"] if accepted is not None and accepted.kind == "location" else [])
+
+        entity = resolve_entity(text) if include_entity else None
+        accepted = entity if entity is not None and not entity.ambiguous else None
+
+        municipalities = (
+            accepted.record["municipalities"]
+            if accepted is not None and accepted.kind == "location"
+            else []
+        )
 
         features = RegionFeatures(
-            raw_text_lower = lower,
+            raw_text_lower=lower,
             text_length=len(text),
             word_count=len(words),
             uppercase_ratio=self.uppercase_ratio(text),
@@ -121,7 +133,9 @@ class RegionFeatureExtractor:
                 or re.search(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", text)
             ),
             has_author_marker=bool(
-                re.match(r"^\s*(?:di\s+|da\s+|a\s+cura\s+di\s+)", text, flags=re.IGNORECASE)
+                re.match(
+                    r"^\s*(?:di\s+|da\s+|a\s+cura\s+di\s+)", text, flags=re.IGNORECASE
+                )
             ),
             has_ad_marker=(
                 "pubblicità" in lower
@@ -182,38 +196,56 @@ class RegionFeatureExtractor:
             entity_priority=(entity.priority if entity else None),
             entity_ambiguous=(entity.ambiguous if entity else False),
             municipalities=municipalities,
-            like_section_label=normalized_line in {"stampa locale", "stampa nazionale", "web", "radio", "tv", "televisione"},
+            like_section_label=normalized_line
+            in {
+                "stampa locale",
+                "stampa nazionale",
+                "web",
+                "radio",
+                "tv",
+                "televisione",
+            },
             like_index_entry=self.looks_like_index_entry(text),
             raw_label=region.raw_label,
-            font_names = list(region.style.get("font_names") or []),
+            font_names=list(region.style.get("font_names") or []),
             dominant_font=region.style.get("dominant_font"),
-            median_font_size = region.style.get("median_font_size"),
-            max_font_size = region.style.get("max_font_size"),
-            bold_ratio = region.style.get("bold_ratio"),
-            italic_ratio = region.style.get("italic_ratio"),
-            dominant_color = (tuple(region.style["dominant_color"]) if region.style.get("dominant_color") is not None else None),
+            median_font_size=region.style.get("median_font_size"),
+            max_font_size=region.style.get("max_font_size"),
+            bold_ratio=region.style.get("bold_ratio"),
+            italic_ratio=region.style.get("italic_ratio"),
+            dominant_color=(
+                tuple(region.style["dominant_color"])
+                if region.style.get("dominant_color") is not None
+                else None
+            ),
             median_opacity=region.style.get("median_opacity"),
             style_source=region.style.get("style_source"),
             style_match_count=region.style.get("style_match_count", 0),
             bold_evidence_fraction=region.style.get("bold_evidence_fraction", 0.0),
-            italic_evidence_fraction=region.style.get("italic_evidence_fraction", 0.0)
+            italic_evidence_fraction=region.style.get("italic_evidence_fraction", 0.0),
         )
 
         self.add_bbox_features(features, region, page)
 
         return features
-    
+
     @staticmethod
     def looks_like_index_entry(text: str) -> bool:
         lower = text.lower().strip()
-        
+
         if len(lower) > 180:
             return False
-        
-        return bool("pag." in lower or re.search(r"\bpagina\s+\d+\b", lower) or re.search(r"\.{3,}\s*\d+$", lower))
-    
+
+        return bool(
+            "pag." in lower
+            or re.search(r"\bpagina\s+\d+\b", lower)
+            or re.search(r"\.{3,}\s*\d+$", lower)
+        )
+
     @staticmethod
-    def add_bbox_features(features: RegionFeatures, region: Region, page: PageRecord) -> None:
+    def add_bbox_features(
+        features: RegionFeatures, region: Region, page: PageRecord
+    ) -> None:
         if not region.bbox or len(region.bbox) != 4:
             return
 
@@ -239,15 +271,17 @@ class RegionFeatureExtractor:
         features.is_bottom_area = features.relative_y1 > 0.80
         features.is_left_area = features.relative_x1 < 0.35
         features.is_right_area = features.relative_x0 > 0.60
-        features.is_center_area = (features.relative_x0 > 0.15 and features.relative_x1 < 0.85)
-            
+        features.is_center_area = (
+            features.relative_x0 > 0.15 and features.relative_x1 < 0.85
+        )
+
     @staticmethod
     def uppercase_ratio(text: str) -> float:
         letters = [char for char in text if char.isalpha()]
-        
+
         if not letters:
             return 0.0
-        
+
         uppercase = [char for char in letters if char.isupper()]
-        
+
         return len(uppercase) / len(letters)

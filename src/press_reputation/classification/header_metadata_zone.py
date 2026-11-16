@@ -1,5 +1,5 @@
-from press_reputation.models.page import PageRecord, RegionType
-from press_reputation.config import HeaderMetadataConfig
+from press_reputation.core.config import HeaderMetadataConfig
+from press_reputation.core.models.page import PageRecord, RegionType
 
 
 class HeaderMetadataZoneDetector:
@@ -75,32 +75,36 @@ class HeaderMetadataZoneDetector:
         )
 
         for region in page.regions:
-            if (region.type in self.PROTECTED_TYPES or region.exclude_from_article_text and region.type not in self.SEED_TYPES):
+            if (
+                region.type in self.PROTECTED_TYPES
+                or region.exclude_from_article_text
+                and region.type not in self.SEED_TYPES
+            ):
                 continue
-            
+
             box = region.bbox
             if not box or len(box) != 4:
                 continue
-            
+
             x0, y0, x1, y1 = box
             if x1 <= x0 or y1 <= y0:
                 continue
-            
+
             if self.config.require_full_region_inside_zone:
                 inside = y0 >= 0 and y1 <= header_bottom
             else:
                 inside = y0 >= 0 and y0 <= header_bottom
-                
+
             if not inside:
                 continue
-            
+
             region.metadata["in_header_metadata_zone"] = True
             region.metadata["header_zone_bottom"] = header_bottom
-            
+
             if region.type in self.SEED_TYPES:
                 region.metadata["header_zone_role"] = "seed"
                 continue
-            
+
             if self.looks_like_metadata_region(region):
                 region.metadata["type_before_header_zone"] = region.type.value
                 region.type = RegionType.HEADER_METADATA

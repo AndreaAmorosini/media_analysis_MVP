@@ -1,14 +1,14 @@
 """Test di normalization/: title_cleanup, watermark_scrub, text_fragment."""
+
 import pytest
 
-from press_reputation.normalization.title_cleanup import (
-    unwrap_fused_codes,
+from press_reputation.core.models.page import RegionType
+from press_reputation.ingestion.normalization.text_fragment import TextFragmentRecovery
+from press_reputation.ingestion.normalization.title_cleanup import (
     clean_article_title,
+    unwrap_fused_codes,
 )
-from press_reputation.normalization.watermark_scrub import scrub_watermark_residue
-from press_reputation.normalization.text_fragment import TextFragmentRecovery
-from press_reputation.models.page import RegionType
-
+from press_reputation.ingestion.normalization.watermark_scrub import scrub_watermark_residue
 
 # ---------------------------------------------------------------------------
 # title_cleanup
@@ -78,7 +78,9 @@ class TestWatermarkScrub:
         assert pages[0].regions[0].text == "Testo pulito senza residui."
 
     def test_rights_phrase_scrubbed(self, make_region, make_page):
-        rights = make_region(RegionType.RIGHTS_NOTICE, text="© RIPRODUZIONE RISERVATA", region_id="rt")
+        rights = make_region(
+            RegionType.RIGHTS_NOTICE, text="© RIPRODUZIONE RISERVATA", region_id="rt"
+        )
         body = make_region(
             RegionType.ARTICLE_BODY,
             text="Paragrafo finale ©riproduzioneriservata",
@@ -87,11 +89,22 @@ class TestWatermarkScrub:
         )
         pages = [make_page(regions=[rights, body])]
         scrub_watermark_residue(pages)
-        assert "riproduzioneriservata" not in (pages[0].regions[1].text or "").replace(" ", "")
+        assert "riproduzioneriservata" not in (pages[0].regions[1].text or "").replace(
+            " ", ""
+        )
 
     def test_title_residue_scrubbed(self, make_region, make_page):
-        watermark = make_region(RegionType.WATERMARK, text="X99991", bbox=[0.0, 0.0, 40.0, 40.0], region_id="wm")
-        title = make_region(RegionType.ARTICLE_TITLE, text="Il bilancio X99991 approvato", region_id="t1")
+        watermark = make_region(
+            RegionType.WATERMARK,
+            text="X99991",
+            bbox=[0.0, 0.0, 40.0, 40.0],
+            region_id="wm",
+        )
+        title = make_region(
+            RegionType.ARTICLE_TITLE,
+            text="Il bilancio X99991 approvato",
+            region_id="t1",
+        )
         pages = [make_page(regions=[watermark, title])]
         scrub_watermark_residue(pages)
         assert "X99991" not in (pages[0].regions[1].text or "")
@@ -130,7 +143,9 @@ class TestTextFragmentRecovery:
         recovered = [fragment.text for fragment in result.fragments if fragment.text]
         assert any("primo pezzo" in fragment for fragment in recovered)
         assert any("secondo pezzo" in fragment for fragment in recovered)
-        assert all(fragment.status == "exact" for fragment in result.fragments if fragment.text)
+        assert all(
+            fragment.status == "exact" for fragment in result.fragments if fragment.text
+        )
 
     def test_raw_span_invalid(self, recovery):
         assert recovery.raw_span({"charspan": "no"}) is None
