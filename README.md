@@ -39,6 +39,10 @@ PYTHONPATH=src pixi run python scripts/export_articles.py \
 
 Copia solo i `article_*.json` finali preservando la struttura `anno/mese/[giorno]/documento/` (file direttamente nella cartella del documento, senza sottocartella `articles/`; i documenti senza articoli vengono saltati; nessun CSV di riepilogo).
 
+### Golden set pubblico per la valutazione
+
+`scripts/build_golden_set.py` costruisce un golden set da fonti pubbliche e aperte (Wikidata CC0, NewsReader MEANTIME CC BY, ARTeLab IlPost/Fanpage CC BY 4.0; opzionali Internet Archive PD e GDELT): PDF sintetici tipo rassegna stampa con ground truth di regione e articolo per tagging/OCR e ricostruzione, più gazetteer di entità e annotazioni di eventi per il knowledge graph. Valutazione con `scripts/evaluate_golden.py`. Dettagli e schema in [docs/golden_set.md](docs/golden_set.md).
+
 ## Flusso
 
 ```text
