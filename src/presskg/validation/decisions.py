@@ -8,6 +8,7 @@ Never modifies Claim, FACT, or original evidence.
 from __future__ import annotations
 
 import argparse
+from argparse import Namespace
 from collections import Counter
 import csv
 from datetime import datetime, timezone
@@ -16,8 +17,9 @@ import json
 from pathlib import Path
 
 from tqdm import tqdm
-from presskg.settings import CFG
-from .primary import (
+from presskg.config import CFG
+from presskg.validation.batch import default_batch_id
+from presskg.validation.primary import (
     FIELDS,
     claim_hash,
     fetch_one,
@@ -362,29 +364,49 @@ def apply(args):
     print("Persistite su Neo4j" if args.commit else "DRY RUN: nessuna scrittura")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    sel = sub.add_parser("select-secondary")
-    sel.add_argument("--primary", required=True)
-    sel.add_argument("--out", required=True)
-    sel.add_argument("--skip-correction-proposals", action="store_true")
-    app = sub.add_parser("apply")
-    app.add_argument("--primary", required=True)
-    app.add_argument("--secondary")
-    app.add_argument("--batch-id", required=True)
-    app.add_argument("--context-chars", type=int, default=600)
-    app.add_argument("--batch-size", type=int, default=200)
-    app.add_argument("--limit", type=int, default=0)
-    app.add_argument("--commit", action="store_true")
-    args = parser.parse_args()
-    if args.command == "select-secondary":
-        select_secondary(args)
-    else:
-        if args.batch_size < 1 or args.limit < 0 or args.context_chars < 1:
-            parser.error("--batch-size >=1, --limit >=0, --context-chars >=1")
-        apply(args)
+def run(args: Namespace) -> bool:
+    command = getattr(args, "command", "apply")
+
+    # batch id derivato dai modelli se non passato esplicitamente
+    if getattr(args, "batch_id", None) is None:
+        args.batch_id = default_batch_id()
+
+    try:
+        if command == "select-secondary":
+            select_secondary(args)
+        elif command == "apply":
+            apply(args)
+    except Exception as e:
+        print(f"Errore inatteso: {e}")
+        return False
+
+    return True
 
 
-if __name__ == "__main__":
-    main()
+def build_parser() -> argparse.ArgumentParser:
+    """Sottocomandi: select-secondary e apply (gate automatico)."""
+    parser = argparse.ArgumentParser(
+        prog="presskg.validation.decisions",
+        description="Gate automatico della validazione.",
+    )
+    parser.add_argument(
+        "command", nargs="?", default="apply",
+        choices=("select-secondary", "apply"),
+    )
+
+    parser.add_argument("--primary", default=None, help="CSV validazione primaria")
+    parser.add_argument("--secondary", default=None, help="CSV secondo giudizio")
+    parser.add_argument(
+        "--out", default=None,
+        help="CSV id selezionati (select-secondary)",
+    )
+    parser.add_argument("--skip-correction-proposals", action="store_true")
+    parser.add_argument("--context-chars", type=int, default=600)
+    parser.add_argument("--limit", type=int, default=0, help="0 = tutti")
+    parser.add_argument(
+        "--batch-id", default=None,
+        help="id del batch ValidatedFact (default: derivato dai modelli)",
+    )
+    parser.add_argument("--batch-size", type=int, default=200)
+    parser.add_argument("--commit", action="store_true", help="scrive su Neo4j")
+    return parser

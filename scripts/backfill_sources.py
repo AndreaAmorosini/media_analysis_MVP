@@ -9,9 +9,9 @@ from pathlib import Path
 
 from neo4j import GraphDatabase
 
-from presskg.articles import short_hash
-from presskg.graph_store import normalize
-from presskg.settings import CFG
+from presskg.ingestion.articles import short_hash
+from presskg.graph.graph_store import normalize
+from presskg.config import CFG
 
 
 def read_source(root: Path, rel_path: str):

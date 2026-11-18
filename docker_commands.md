@@ -1,6 +1,6 @@
 docker compose exec -T presskg pixi run ingest --replace
 
-docker compose exec presskg pixi run python tests/kg_quality.py all --random 300 --diagnostic 150 --seed 42 --max-tokens 1500 --timeout 600 --retries 2 --judge-context-chars 550  --out output/evaluations/qwen38_gemma31_300
+docker compose exec presskg pixi run python -m presskg.cli quality all --random 300 --diagnostic 150 --seed 42 --max-tokens 1500 --timeout 600 --retries 2 --judge-context-chars 550  --out output/evaluations/qwen38_gemma31_300
 
 docker compose exec -T presskg pixi run python scripts/validate_claims.py generate --limit 0 --context-chars 600 --max-tokens 1600 --retries 1 --resume --out output/semantic_validation/gemma31_primary.csv
 

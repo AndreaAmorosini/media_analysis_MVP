@@ -18,8 +18,10 @@ services:
         ${NEO4J_PUBLIC_HOST}:${NEO4J_BOLT_PORT:-7687}
 
     ports:
-      - "${NEO4J_BIND_ADDRESS:-0.0.0.0}:${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BIND_ADDRESS:-0.0.0.0}:${NEO4J_BOLT_PORT:-7687}:7687"
+      # di default il DB non e' esposto fuori dall'host: usare
+      # NEO4J_BIND_ADDRESS=0.0.0.0 per esporlo ad altre macchine
+      - "${NEO4J_BIND_ADDRESS:-127.0.0.1}:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BIND_ADDRESS:-127.0.0.1}:${NEO4J_BOLT_PORT:-7687}:7687"
 
     volumes:
       - neo4j_data:/data
@@ -55,11 +57,15 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_DATABASE: neo4j
 
-      PRESSKG_PROFILE: "5090"
+      # profilo hardware: rispetta il valore di .env (default 5090 per la
+      # macchina di deploy storica)
+      PRESSKG_PROFILE: "${PRESSKG_PROFILE:-5090}"
       PRESSKG_DATA_DIR: /app/Data
       PRESSKG_OUTPUT_DIR: /app/output/extractions
 
-      UNSLOTH_BASE_URL: "${UNSLOTH_BASE_URL:-http://host.docker.internal:8081/v1}"
+      # server LLM: dentro il container 127.0.0.1 non raggiunge l'host;
+      # il fallback e' coerente con l'endpoint Unsloth locale di default
+      UNSLOTH_BASE_URL: "${UNSLOTH_BASE_URL:-http://host.docker.internal:8888/v1}"
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

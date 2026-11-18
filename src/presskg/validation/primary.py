@@ -5,6 +5,7 @@ Apply writes separate ClaimValidation nodes only after explicit approval.
 from __future__ import annotations
 
 import argparse
+from argparse import Namespace
 from collections import Counter
 import csv
 import hashlib
@@ -20,8 +21,10 @@ from neo4j import GraphDatabase
 from openai import OpenAI
 from json_repair import loads as repair_loads
 from tqdm import tqdm
-from presskg.settings import CFG
-from presskg.entity_ontology import TYPES
+from presskg.config import CFG
+from presskg.taxonomy.entity_ontology import TYPES
+from presskg.common.db import open_driver
+
 
 VERSION = "claim-validation-v2.1-semantic-role-guards"
 VERDICTS = {"supported_as_is", "correction_proposed", "unsupported", "insufficient_context"}
@@ -490,10 +493,6 @@ def make_row(c, model, run_hash, judgement, errors, judge_attempts=1):
     }
 
 
-def open_driver():
-    return GraphDatabase.driver(CFG.neo4j_uri, auth=(CFG.neo4j_user, CFG.neo4j_password))
-
-
 def fetch_one(session, claim_id, padding):
     rec = session.run(READ_ONE, target=claim_id, padding=padding, batch=1).single()
     return dict(rec) if rec else None
@@ -604,7 +603,6 @@ def run_generate(args):
         print("Generazione completata:", target, dict(counters))
     finally:
         driver.close()
-
 
 
 def retry_invalid(args, model, system_prompt, signature, selected_ids):
@@ -993,7 +991,6 @@ def retry_invalid(args, model, system_prompt, signature, selected_ids):
     print("CSV aggiornato:", target, flush=True)
 
 
-
 def store_validations(tx, records):
     tx.run("""
         UNWIND $rows AS row
@@ -1067,41 +1064,58 @@ def run_apply(args):
         driver.close()
 
 
-def main():
-    p = argparse.ArgumentParser()
-    sub = p.add_subparsers(dest="command", required=True)
-    g = sub.add_parser("generate")
-    g.add_argument("--out", default="output/semantic_validation/review_v1.csv")
-    g.add_argument("--model", default=CFG.eval_model_id)
-    g.add_argument("--predicates", nargs="*", default=[])
-    g.add_argument("--only-flagged", action="store_true")
-    g.add_argument("--limit", type=int, default=100)
-    g.add_argument("--batch", type=int, default=250)
-    g.add_argument("--context-chars", type=int, default=600)
-    g.add_argument("--retries", type=int, default=1)
-    g.add_argument("--max-tokens", type=int, default=1400)
-    g.add_argument("--resume", action="store_true")
-    g.add_argument("--retry-invalid", action="store_true",
-                    help="Riprova soltanto i giudizi con validation_errors")
-    g.add_argument("--claim-ids-file", default=None,
-                    help="CSV con colonna claim_id per ripetere lo stesso benchmark")
-    a = sub.add_parser("apply")
-    a.add_argument("--csv", required=True)
-    a.add_argument("--reviewer", default=None)
-    a.add_argument("--context-chars", type=int, default=600)
-    a.add_argument("--commit", action="store_true")
-    args = p.parse_args()
-    
-    if args.command == "generate" and args.retry_invalid and not args.resume:
-        p.error("--retry-invalid richiede --resume")
-    
-    if args.command == "generate":
-        if args.batch < 1 or args.limit < 0 or args.retries < 0:
-            p.error("--batch >=1, --limit >=0 e --retries >=0 richiesti")
-        run_generate(args)
-    else:
-        run_apply(args)
+def run(args: Namespace) -> bool:
+    command = getattr(args, "command", "generate")
+
+    try:
+        if command == "generate":
+            run_generate(args)
+        elif command == "apply":
+            run_apply(args)
+        else:
+            raise ValueError("Comando sconosciuto: " + str(command))
+    except Exception as exc:
+        print(f"Errore durante {command}: {type(exc).__name__}: {exc}")
+        return False
+
+    return True
 
 
-if __name__ == "__main__":
-    main()
+def build_parser() -> argparse.ArgumentParser:
+    """Sottocomandi: generate (giudice LLM) e apply (revisioni approvate)."""
+    parser = argparse.ArgumentParser(
+        prog="presskg.validation.primary",
+        description="Validazione primaria dei claim.",
+    )
+    parser.add_argument(
+        "command", nargs="?", default="generate",
+        choices=("generate", "apply"),
+    )
+
+    parser.add_argument(
+        "--model", default=None,
+        help="modello giudice (default: UNSLOTH_EVAL_MODEL)",
+    )
+    parser.add_argument("--limit", type=int, default=0, help="0 = tutti")
+    parser.add_argument("--context-chars", type=int, default=600)
+    parser.add_argument("--max-tokens", type=int, default=1600)
+    parser.add_argument("--retries", type=int, default=1)
+    parser.add_argument("--batch", type=int, default=200)
+    parser.add_argument(
+        "--out", default=None,
+        help="CSV di destinazione (generate)",
+    )
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--claim-ids-file", default=None)
+    parser.add_argument(
+        "--predicates", default=[],
+        type=lambda v: [p.strip() for p in v.split(",") if p.strip()],
+        help=" lista di predicati separati da virgola (default: tutti)",
+    )
+    parser.add_argument("--only-flagged", action="store_true")
+    parser.add_argument("--retry-invalid", action="store_true")
+
+    parser.add_argument("--csv", default=None, help="CSV revisione (apply)")
+    parser.add_argument("--reviewer", default=None, help="firmatario (apply)")
+    parser.add_argument("--commit", action="store_true", help="scrive su Neo4j (apply)")
+    return parser

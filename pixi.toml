@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "presskg-ingestion"
 version = "0.1.0"
 channels = ["conda-forge"]
@@ -6,6 +6,7 @@ platforms = ["linux-64"]
 
 [dependencies]
 python = ">=3.11,<3.13"
+pytest = ">=8,<9"
 
 [pypi-dependencies]
 presskg = { path = ".", editable = true }
@@ -15,16 +16,36 @@ pydantic = ">=2.9,<3"
 python-dotenv = ">=1,<2"
 tqdm = ">=4.66,<5"
 json-repair = ">=0.60,<1"
-sentence-transformers = ">=6.2.0, <7"
+sentence-transformers = ">=6.2.0,<7"
 
 [tasks]
 preflight = "python -m presskg.cli preflight"
 init-db = "python -m presskg.cli init-db"
 ingest = "python -m presskg.cli ingest"
 stats = "python -m presskg.cli stats"
-check = "python -m unittest discover -s tests -v"
-enrich = "python -m presskg.enrich_graph"
-normalize-predicates = "python -m presskg.normalize_predicates"
+
+# Test: suite del codice (unit + regressione), senza Neo4j né LLM
+test = "python -m pytest -q -m 'not graph'"
+# Audit del grafo reale (read-only, skip se Neo4j non raggiungibile)
+test-graph = "python -m pytest -q tests/graph -m graph"
+check = { cmd = "python -m pytest -q -m 'not graph'", description = "Alias della suite di test del codice" }
+
+# Lint/format con ruff (config in pyproject.toml [tool.ruff])
+lint = { cmd = "ruff check src tests scripts", description = "Analisi statica (import non usati, name error, ...)" }
+lint-fix = { cmd = "ruff check src tests scripts --fix", description = "Analisi statica con fix automatici (rimozione import non usati)" }
+format-check = { cmd = "ruff format --check src tests scripts", description = "Preview dei file che ruff format riscriverebbe" }
+format-fix = { cmd = "ruff format src tests scripts", description = "Riformattazione del codice con ruff" }
+
+# Graph enrichment tramite CLI (dry-run di default, --apply per applicare)
+enrich = "python -m presskg.cli enrich"
+normalize-predicates = "python -m presskg.cli normalize-predicates"
+
+# Resolution pipeline: 4 fasi (identity, projection, predicates, events),
+# dry-run di default; il sottocomando CLI sottostante e' `pipeline`
+resolution = "python -m presskg.cli pipeline"
+
+# Benchmark di una fase (richiede Neo4j): tempo + RSS di picco
+benchmark-identity = "python -m presskg.resolution.benchmark --phase identity"
 
 # Validation
 validation-primary = "python -m presskg.validation primary"
@@ -34,3 +55,7 @@ validation-materialize = "python -m presskg.validation materialize"
 
 # Full workflow, mantiene il comportamento precedente
 validation-full = "bash scripts/run_validation_full.sh"
+
+# E2E completo: ingest -> validazione -> pipeline (apply) -> arricchimenti -> audit
+# (vedi scripts/run_e2e.sh per i parametri via env)
+e2e = "bash scripts/run_e2e.sh"

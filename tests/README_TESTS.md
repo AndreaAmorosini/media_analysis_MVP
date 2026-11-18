@@ -7,7 +7,7 @@ Non include la fase 4 (confronto tra versioni) richiesta dall'utente.
 ## Fase 1 — audit automatico
 
 ```
-pixi run python scripts/kg_quality.py audit --data-dir Data --expected-articles 5415 \
+pixi run python -m presskg.cli quality audit --data-dir Data --expected-articles 5415 \
   --out output/evaluations/v3_2
 ```
 
@@ -30,7 +30,7 @@ l'endpoint OpenAI-compatible e generare l'API key in Settings > API.
 Esegui realmente:
 
 ```
-pixi run python scripts/kg_quality.py semantic \
+pixi run python -m presskg.cli quality semantic \
   --random 300 --diagnostic 100 --seed 42 \
   --model auto \
   --out output/evaluations/v3_2
@@ -57,7 +57,7 @@ Se interrotto, il programma riprende automaticamente i giudizi già salvati in
 ## Fase 3 — Entity/Event Resolution
 
 ```
-pixi run python scripts/kg_quality.py resolution \
+pixi run python -m presskg.cli quality resolution \
   --out output/evaluations/v3_2
 ```
 
@@ -74,7 +74,7 @@ lo stesso evento riportato da più articoli non significa duplicato certo.
 ## Eseguire tutte le fasi
 
 ```
-pixi run python scripts/kg_quality.py all \
+pixi run python -m presskg.cli quality all \
   --data-dir Data --expected-articles 5415 \
   --random 300 --diagnostic 100 --seed 42 \
   --out output/evaluations/v3_2

@@ -16,7 +16,7 @@ from neo4j import GraphDatabase
 from openai import OpenAI
 from tqdm import tqdm
 
-from presskg.settings import CFG
+from presskg.config import CFG
 
 
 VERSION = "event-metadata-v2-temporal-grounding"

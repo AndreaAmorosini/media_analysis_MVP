@@ -1,10 +1,10 @@
 
-#!/usr/bin/env python3
-"""Correction & Reverification per PressKG."""
+"""Correction & Reverification."""
 
 from __future__ import annotations
 
 import argparse
+from argparse import Namespace
 from collections import Counter
 from copy import deepcopy
 import csv
@@ -20,12 +20,13 @@ import unicodedata
 from openai import OpenAI
 from tqdm import tqdm
 
-from presskg.settings import CFG
-from presskg.entity_ontology import TYPES
-from presskg.ontology import CANONICAL as BASE_PREDICATES, ALIASES as BASE_ALIASES
-from presskg.predicate_catalog import CANONICAL as NEWS_PREDICATES, ALIASES as NEWS_ALIASES , normalize_predicate_name
+from presskg.config import CFG
+from presskg.validation.batch import default_batch_id
+from presskg.taxonomy.entity_ontology import TYPES
+from presskg.taxonomy.ontology import CANONICAL as BASE_PREDICATES, ALIASES as BASE_ALIASES
+from presskg.taxonomy.predicate_catalog import CANONICAL as NEWS_PREDICATES, ALIASES as NEWS_ALIASES , normalize_predicate_name
 
-from .primary import (
+from presskg.validation.primary import (
     BOOL_FIELDS,
     MODES,
     ask_judge,
@@ -38,10 +39,12 @@ from .primary import (
     validate_judgement,
 )
 
-from .decisions import (
+from presskg.validation.decisions import (
     checked_judgement,
     read_rows,
 )
+from presskg.common.hashing import canonical_digest
+
 
 VERSION = "correction-reverification-v1"
 
@@ -111,13 +114,7 @@ Non assegnare sentiment né reputazione.
 """
 
 
-def digest(value):
-    return hashlib.sha256(
-        dump(value).encode("utf-8")
-    ).hexdigest()
-
-
-def read_jsonl(
+def load_indexed_jsonl(
     path,
     key,
     allow_repeated=False,
@@ -278,7 +275,7 @@ def candidate_for(row, judgement):
         "proposal": proposal,
     }
 
-    candidate_digest = digest(base)
+    candidate_digest = canonical_digest(base)
 
     return {
         **base,
@@ -367,8 +364,6 @@ def check_reverification(judgement, claim):
             )
 
     return sorted(set(errors))
-
-
 
 
 def prepare(args):
@@ -574,7 +569,7 @@ def prepare(args):
 
 
 def verify(args):
-    candidates = read_jsonl(
+    candidates = load_indexed_jsonl(
         args.candidates,
         "candidate_id",
     )
@@ -588,7 +583,7 @@ def verify(args):
             "dal giudice primario."
         )
 
-    run_signature = digest({
+    run_signature = canonical_digest({
         "version": VERSION,
         "prompt": VERIFY_PROMPT,
         "model": args.model,
@@ -613,7 +608,7 @@ def verify(args):
                 "Usare --resume."
             )
 
-        previous = read_jsonl(
+        previous = load_indexed_jsonl(
             output,
             "candidate_id",
             allow_repeated=True,
@@ -637,7 +632,7 @@ def verify(args):
         write_target = Path(str(output) + ".retrying")
         
         if write_target.exists():
-            staged = read_jsonl(write_target, "candidate_id", allow_repeated=True)
+            staged = load_indexed_jsonl(write_target, "candidate_id", allow_repeated=True)
             for cid, item in staged.items():
                 if (cid not in candidates or item.get("run_signature") != run_signature or item.get("model") != args.model or item.get("candidate_hash") != candidates[cid]["candidate_hash"]
                     or item.get("claim_hash") != candidates[cid]["claim_hash"] or item.get("claim_id") != candidates[cid]["claim_id"]):
@@ -808,14 +803,14 @@ def verify(args):
         
     
     if args.retry_failed and args.limit == 0:
-        base = read_jsonl(
+        base = load_indexed_jsonl(
             output,
             "candidate_id",
             allow_repeated=True,
         )
 
         staged = (
-            read_jsonl(
+            load_indexed_jsonl(
                 write_target,
                 "candidate_id",
                 allow_repeated=True,
@@ -864,7 +859,7 @@ def verify(args):
             backup = output.with_name(
                 output.name
                 + ".before_retry."
-                + digest({
+                + canonical_digest({
                     "candidate_ids": sorted(base),
                     "source_size": output.stat().st_size,
                     "source_mtime_ns": output.stat().st_mtime_ns,
@@ -883,7 +878,6 @@ def verify(args):
             print("Backup:", backup, flush=True)
 
 
-
 def correction_record(
     candidate,
     verification,
@@ -897,7 +891,7 @@ def correction_record(
         "validation_id": "cvauto-" + hashlib.sha256(
             f"{batch_id}|{cid}".encode()
         ).hexdigest()[:32],
-        "id": "vcc-" + digest({
+        "id": "vcc-" + canonical_digest({
             "batch_id": batch_id,
             "candidate_hash": candidate["candidate_hash"],
         })[:32],
@@ -925,7 +919,6 @@ def correction_record(
             timezone.utc
         ).isoformat(),
     }
-
 
 
 def store_corrections(tx, records):
@@ -1106,12 +1099,12 @@ def apply(args):
         Path(args.primary)
     )
 
-    candidates = read_jsonl(
+    candidates = load_indexed_jsonl(
         args.candidates,
         "candidate_id",
     )
 
-    verifications = read_jsonl(
+    verifications = load_indexed_jsonl(
         args.verified,
         "candidate_id",
     )
@@ -1385,128 +1378,63 @@ def apply(args):
     )
 
 
-def main():
+def run(args: Namespace) -> bool:
+    command = getattr(args, "command", "prepare")
+
+    # batch id derivato dai modelli se non passato esplicitamente
+    if getattr(args, "batch_id", None) is None:
+        args.batch_id = default_batch_id()
+
+    try:
+        {
+            "prepare": prepare,
+            "verify": verify,
+            "apply": apply,
+        }[command](args)
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        return False
+
+    return True
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Sottocomandi: prepare, verify e apply delle correzioni."""
     parser = argparse.ArgumentParser(
-        description=__doc__
+        prog="presskg.validation.corrections",
+        description="Correzione dei claim respinti dalla validazione primaria.",
+    )
+    parser.add_argument(
+        "command", nargs="?", default="prepare",
+        choices=("prepare", "verify", "apply"),
     )
 
-    sub = parser.add_subparsers(
-        dest="command",
-        required=True,
+    parser.add_argument("--primary", default=None, help="CSV validazione primaria")
+    parser.add_argument("--secondary", default=None, help="CSV secondo giudizio")
+    parser.add_argument("--candidates", default=None, help="JSONL candidati")
+    parser.add_argument("--verified", default=None, help="JSONL candidati verificati")
+    parser.add_argument("--out", default=None)
+    parser.add_argument(
+        "--report", default=None,
+        help="CSV scartati (prepare; default: <out>.excluded.csv)",
     )
-
-    prepare_cmd = sub.add_parser("prepare")
-    prepare_cmd.add_argument("--primary", required=True)
-    prepare_cmd.add_argument("--out", required=True)
-    prepare_cmd.add_argument(
-        "--context-chars",
-        type=int,
-        default=600,
+    parser.add_argument("--model", default=None, help="modello verificatore (verify)")
+    parser.add_argument("--context-chars", type=int, default=600)
+    parser.add_argument("--limit", type=int, default=0, help="0 = tutti")
+    parser.add_argument("--max-tokens", type=int, default=1600)
+    parser.add_argument("--timeout", type=float, default=600)
+    parser.add_argument("--retries", type=int, default=1)
+    parser.add_argument("--max-consecutive-errors", type=int, default=5)
+    parser.add_argument(
+        "--batch-id", default=None,
+        help="id del batch ValidatedFact (default: derivato dai modelli)",
     )
-    prepare_cmd.add_argument(
-        "--overwrite",
-        action="store_true",
+    parser.add_argument(
+        "--batch-size", type=int, default=200,
+        help="dimensione dei batch di scrittura (apply)",
     )
-    prepare_cmd.add_argument("--report", default=None, help="CSV con cause di esclusione")
-    prepare_cmd.add_argument(
-        "--limit",
-        type=int,
-        default=0,
-    )
-
-    verify_cmd = sub.add_parser("verify")
-    verify_cmd.add_argument("--candidates", required=True)
-    verify_cmd.add_argument("--out", required=True)
-    verify_cmd.add_argument("--model", required=True)
-    verify_cmd.add_argument(
-        "--context-chars",
-        type=int,
-        default=600,
-    )
-    verify_cmd.add_argument(
-        "--max-tokens",
-        type=int,
-        default=1600,
-    )
-    verify_cmd.add_argument(
-        "--timeout",
-        type=float,
-        default=600,
-    )
-    verify_cmd.add_argument(
-        "--retries",
-        type=int,
-        default=1,
-    )
-    verify_cmd.add_argument(
-        "--max-consecutive-errors",
-        type=int,
-        default=5,
-    )
-    verify_cmd.add_argument(
-        "--limit",
-        type=int,
-        default=0,
-    )
-    verify_cmd.add_argument(
-        "--resume",
-        action="store_true",
-    )
-    verify_cmd.add_argument(
-        "--retry-failed",
-        action="store_true",
-    )
-
-    apply_cmd = sub.add_parser("apply")
-    apply_cmd.add_argument("--primary", required=True)
-    apply_cmd.add_argument("--candidates", required=True)
-    apply_cmd.add_argument("--verified", required=True)
-    apply_cmd.add_argument("--secondary")
-    apply_cmd.add_argument("--batch-id", required=True)
-    apply_cmd.add_argument(
-        "--context-chars",
-        type=int,
-        default=600,
-    )
-    apply_cmd.add_argument(
-        "--batch-size",
-        type=int,
-        default=200,
-    )
-    apply_cmd.add_argument(
-        "--commit",
-        action="store_true",
-    )
-
-    args = parser.parse_args()
-
-    if args.context_chars <= 0:
-        parser.error("--context-chars deve essere positivo")
-
-    if (
-        hasattr(args, "batch_size")
-        and args.batch_size <= 0
-    ):
-        parser.error("--batch-size deve essere positivo")
-
-    if (
-        hasattr(args, "limit")
-        and args.limit < 0
-    ):
-        parser.error("--limit deve essere >= 0")
-
-    if (
-        hasattr(args, "retries")
-        and args.retries < 0
-    ):
-        parser.error("--retries deve essere >= 0")
-
-    {
-        "prepare": prepare,
-        "verify": verify,
-        "apply": apply,
-    }[args.command](args)
-
-
-if __name__ == "__main__":
-    main()
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--commit", action="store_true", help="scrive su Neo4j")
+    return parser

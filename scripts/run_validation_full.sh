@@ -3,16 +3,30 @@
 set -euo pipefail
 
 ROOT="${VALIDATION_DIR:-output/semantic_validation/qwen38_full}"
-BATCH_ID="${VALIDATION_BATCH_ID:-qwen38-gemma31-gemma12-v1}"
+
+GEMMA31_ID="${VALIDATION_GEMMA31_ID:-}"
+# giudice primario di default: il modello di valutazione configurato (.env)
+if [[ -z "$GEMMA31_ID" ]]; then
+    GEMMA31_ID="$(pixi run python -c 'from presskg.config import CFG; print(CFG.eval_model_id)')"
+fi
+GEMMA12_ID="${VALIDATION_GEMMA12_ID:-unsloth/gemma-4-12b-it-GGUF}"
+
+# batch id derivato dai modelli effettivi della catena
+# (ingest da CFG + giudice primario + giudice secondario), vedi
+# presskg.validation.batch; override con VALIDATION_BATCH_ID
+if [[ -n "${VALIDATION_BATCH_ID:-}" ]]; then
+    BATCH_ID="$VALIDATION_BATCH_ID"
+else
+    BATCH_ID="$(pixi run python -c \
+        'import sys; from presskg.validation.batch import derive_batch_id; print(derive_batch_id(judge_model=sys.argv[1], secondary_model=sys.argv[2]))' \
+        "$GEMMA31_ID" "$GEMMA12_ID")"
+fi
 
 PRIMARY="$ROOT/gemma31_primary.csv"
 SELECTED="$ROOT/secondary_ids.csv"
 SECONDARY="$ROOT/gemma12_secondary.csv"
 CANDIDATES="$ROOT/correction_candidates.jsonl"
 VERIFIED="$ROOT/correction_verified.jsonl"
-
-GEMMA31_ID="${VALIDATION_GEMMA31_ID:-unsloth/gemma-4-31B-it-GGUF}"
-GEMMA12_ID="${VALIDATION_GEMMA12_ID:-unsloth/gemma-4-12b-it-GGUF}"
 
 mkdir -p "$ROOT"
 
@@ -149,6 +163,17 @@ pixi run python -m presskg.validation corrections apply \
     --batch-id "$BATCH_ID" \
     --context-chars 600 \
     "${write_opts[@]}"
+
+if [[ "${VALIDATION_COMMIT:-0}" == "1" ]]; then
+    echo "=== 8/8 Materializzazione ValidatedFact ==="
+    # con COMMIT=1 la validazione completa anche lo stato del grafo che la
+    # resolution pipeline legge come baseline: i gate 6-7 persistono solo
+    # ClaimValidation/correzioni, il ValidatedFactBatch nasce qui
+    # (idempotente, batch-id come sopra)
+    pixi run python -m presskg.validation materialize \
+        --batch-id "$BATCH_ID" \
+        --commit
+fi
 
 echo "Pipeline terminata."
 echo "Risultati: $ROOT"

@@ -1,5 +1,3 @@
-
-#!/usr/bin/env python3
 """Materializza una vista versionata dei claim accettati e corretti.
 
 Non modifica Claim, ClaimValidation, VerifiedClaimCorrection
@@ -8,6 +6,7 @@ né le relazioni FACT. Non usa LLM.
 from __future__ import annotations
 
 import argparse
+from argparse import Namespace
 import hashlib
 import json
 import re
@@ -16,12 +15,16 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from tqdm import tqdm
-from presskg.settings import CFG
-from .primary import claim_hash, open_driver
+from presskg.config import CFG
+from presskg.validation.batch import default_batch_id
+from presskg.validation.primary import claim_hash, open_driver
+from presskg.common.hashing import canonical_digest
+
 
 
 VERSION = "validated-fact-view-v1"
-BATCH_ID_DEFAULT = "qwen38-gemma31-gemma12-v1"
+# batch id derivato dai modelli configurati (vedi presskg.validation.batch)
+BATCH_ID_DEFAULT = None
 STATES = {"accepted", "corrected_verified"}
 
 
@@ -110,18 +113,6 @@ CONSTRAINTS = (
     "CREATE CONSTRAINT vf_mention_id IF NOT EXISTS "
     "FOR (m:ValidatedMention) REQUIRE m.id IS UNIQUE",
 )
-
-
-def digest(value):
-    raw = json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return hashlib.sha256(
-        raw.encode("utf-8")
-    ).hexdigest()
 
 
 def literal(text):
@@ -337,7 +328,7 @@ def make_row(source, batch_id):
     # Un ID deterministico per batch e claim.
     fact_id = (
         "vf-"
-        + digest([VERSION, batch_id, cid])[:32]
+        + canonical_digest([VERSION, batch_id, cid])[:32]
     )
 
     fact = {
@@ -640,322 +631,305 @@ def audit_links(session, batch_key):
     """, batch_key=batch_key).single()
 
 
-def run(args):
-    if args.commit and args.limit:
-        raise ValueError(
-            "--commit non consente --limit"
-        )
-
-    if (
-        args.batch_size < 1
-        or args.limit < 0
-        or args.padding < 1
-    ):
-        raise ValueError(
-            "--batch-size >=1, --limit >=0, --padding >=1"
-        )
-
-    batch_key = (
-        f"{VERSION}:{args.batch_id}"
-    )
-
-    driver = open_driver()
-
+def run(args: Namespace) -> bool:
+    batch_id = getattr(args, "batch_id", None) or default_batch_id()
+    padding = getattr(args, "padding", 600)
+    batch_size = getattr(args, "batch_size", 200)
+    limit = getattr(args, "limit", 0)
+    commit = getattr(args, "commit", False)
+    
     try:
-        with driver.session(
-            database=CFG.neo4j_database
-        ) as session:
-
-            # Il batch di validazione deve
-            # comprendere tutti i claim originali.
-            validations = session.run("""
-                MATCH (
-                    v:ClaimValidation {
-                        batch_id:$batch_id
-                    }
-                )
-
-                RETURN
-                    count(v) AS n,
-                    count(DISTINCT v.claim_id)
-                        AS distinct_claims,
-                    sum(
-                        CASE
-                            WHEN v.status IN [
-                                'accepted',
-                                'corrected_verified'
-                            ]
-                            THEN 1
-                            ELSE 0
-                        END
-                    ) AS eligible
-            """, batch_id=args.batch_id).single()
-
-            total_claims = session.run("""
-                MATCH (c:Claim)
-                RETURN count(c) AS n
-            """).single()["n"]
-
-            if (
-                validations["n"] == 0
-                or validations["n"] != total_claims
-                or validations["distinct_claims"]
-                != total_claims
-            ):
-                raise ValueError(
-                    "Batch validazioni non completo: "
-                    f"{validations['n']}/{total_claims}"
-                )
-
-            expected = validations["eligible"]
-
-            query = SOURCE_QUERY + (
-                "\nLIMIT $sample"
-                if args.limit
-                else ""
+        if (
+            batch_size < 1
+            or limit < 0
+            or padding < 1
+        ):
+            raise ValueError(
+                "--batch-size >=1, --limit >=0, --padding >=1"
             )
 
-            records = list(session.run(
-                query,
-                batch_id=args.batch_id,
-                padding=args.padding,
-                sample=args.limit,
-            ))
+        batch_key = (
+            f"{VERSION}:{batch_id}"
+        )
 
-            if (
-                not args.limit
-                and len(records) != expected
-            ):
-                raise ValueError(
-                    "Link o dati sorgente mancanti: "
-                    f"{len(records)}/{expected}"
-                )
+        driver = open_driver()
 
-            # Tutti i record selezionati vengono
-            # verificati prima di scrivere.
-            rows = [
-                make_row(record, args.batch_id)
-                for record in tqdm(
-                    records,
-                    desc="Validate source",
-                    unit="fact",
-                )
-            ]
+        try:
+            with driver.session(
+                database=CFG.neo4j_database
+            ) as session:
 
-            if (
-                len({
-                    row["claim_id"]
-                    for row in rows
-                }) != len(rows)
-            ):
-                raise ValueError(
-                    "Un claim ha più fact nella vista"
-                )
-
-            fingerprint = digest([
-                [
-                    row["id"],
-                    row["fact"]["claim_hash"],
-                    row["correction_id"],
-                    row["fact"]["predicate"],
-                    row["fact"]["supporting_span"],
-                ]
-                for row in rows
-            ])
-
-            counts = Counter(
-                row["fact"]["representation"]
-                for row in rows
-            )
-
-            print(
-                "Source checks passed:",
-                dict(counts),
-                "total:",
-                len(rows),
-            )
-
-            print(
-                "Source fingerprint:",
-                fingerprint,
-            )
-
-            if not args.commit:
-                for row in rows[:args.limit or 5]:
-                    fact = row["fact"]
-
-                    print(json.dumps(
-                        {
-                            key: fact.get(key)
-                            for key in (
-                                "claim_id",
-                                "representation",
-                                "predicate",
-                                "subject_name",
-                                "object_name",
-                                "supporting_span",
-                            )
-                        },
-                        ensure_ascii=False,
-                    ))
-
-                print(
-                    "DRY RUN: nessuna scrittura"
-                )
-                return
-
-            for cypher in CONSTRAINTS:
-                session.run(cypher).consume()
-
-            state = session.run("""
-                MERGE (
-                    b:ValidatedFactBatch {id:$key}
-                )
-
-                ON CREATE SET
-                    b.batch_id = $batch_id,
-                    b.version = $version,
-                    b.status = 'building',
-                    b.expected_facts = $expected,
-                    b.source_fingerprint = $fingerprint,
-                    b.created_at = $created_at
-
-                RETURN properties(b) AS data
-
-            """,
-                key=batch_key,
-                batch_id=args.batch_id,
-                version=VERSION,
-                expected=expected,
-                fingerprint=fingerprint,
-                created_at=datetime.now(
-                    timezone.utc
-                ).isoformat(),
-            ).single()["data"]
-
-            for field, wanted in (
-                ("batch_id", args.batch_id),
-                ("version", VERSION),
-                ("expected_facts", expected),
-                ("source_fingerprint", fingerprint),
-            ):
-                if state.get(field) != wanted:
-                    raise ValueError(
-                        "Batch vista già esistente "
-                        f"e incompatibile: {field}"
+                # Il batch di validazione deve
+                # comprendere tutti i claim originali.
+                validations = session.run("""
+                    MATCH (
+                        v:ClaimValidation {
+                            batch_id:$batch_id
+                        }
                     )
 
-            if state.get("status") not in {
-                "building",
-                "ready",
-            }:
-                raise ValueError(
-                    "Stato batch vista inatteso"
+                    RETURN
+                        count(v) AS n,
+                        count(DISTINCT v.claim_id)
+                            AS distinct_claims,
+                        sum(
+                            CASE
+                                WHEN v.status IN [
+                                    'accepted',
+                                    'corrected_verified'
+                                ]
+                                THEN 1
+                                ELSE 0
+                            END
+                        ) AS eligible
+                """, batch_id=batch_id).single()
+
+                total_claims = session.run("""
+                    MATCH (c:Claim)
+                    RETURN count(c) AS n
+                """).single()["n"]
+
+                if (
+                    validations["n"] == 0
+                    or validations["n"] != total_claims
+                    or validations["distinct_claims"]
+                    != total_claims
+                ):
+                    raise ValueError(
+                        "Batch validazioni non completo: "
+                        f"{validations['n']}/{total_claims}"
+                    )
+
+                expected = validations["eligible"]
+
+                query = SOURCE_QUERY + (
+                    "\nLIMIT $sample"
+                    if args.limit
+                    else ""
                 )
 
-            for start in tqdm(
-                range(
-                    0,
+                records = list(session.run(
+                    query,
+                    batch_id=batch_id,
+                    padding=padding,
+                    sample=limit,
+                ))
+
+                if (
+                    not limit
+                    and len(records) != expected
+                ):
+                    raise ValueError(
+                        "Link o dati sorgente mancanti: "
+                        f"{len(records)}/{expected}"
+                    )
+
+                # Tutti i record selezionati vengono
+                # verificati prima di scrivere.
+                rows = [
+                    make_row(record, batch_id)
+                    for record in tqdm(
+                        records,
+                        desc="Validate source",
+                        unit="fact",
+                    )
+                ]
+
+                if (
+                    len({
+                        row["claim_id"]
+                        for row in rows
+                    }) != len(rows)
+                ):
+                    raise ValueError(
+                        "Un claim ha più fact nella vista"
+                    )
+
+                fingerprint = canonical_digest([
+                    [
+                        row["id"],
+                        row["fact"]["claim_hash"],
+                        row["correction_id"],
+                        row["fact"]["predicate"],
+                        row["fact"]["supporting_span"],
+                    ]
+                    for row in rows
+                ])
+
+                counts = Counter(
+                    row["fact"]["representation"]
+                    for row in rows
+                )
+
+                print(
+                    "Source checks passed:",
+                    dict(counts),
+                    "total:",
                     len(rows),
-                    args.batch_size,
-                ),
-                desc="Materialize",
-                unit="batch",
-            ):
-                session.execute_write(
-                    write_batch,
-                    rows[
-                        start:start + args.batch_size
-                    ],
+                )
+
+                print(
+                    "Source fingerprint:",
+                    fingerprint,
+                )
+
+                if not commit:
+                    for row in rows[:limit or 5]:
+                        fact = row["fact"]
+
+                        print(json.dumps(
+                            {
+                                key: fact.get(key)
+                                for key in (
+                                    "claim_id",
+                                    "representation",
+                                    "predicate",
+                                    "subject_name",
+                                    "object_name",
+                                    "supporting_span",
+                                )
+                            },
+                            ensure_ascii=False,
+                        ))
+
+                    print(
+                        "DRY RUN: nessuna scrittura"
+                    )
+                    return
+
+                for cypher in CONSTRAINTS:
+                    session.run(cypher).consume()
+
+                state = session.run("""
+                    MERGE (
+                        b:ValidatedFactBatch {id:$key}
+                    )
+
+                    ON CREATE SET
+                        b.batch_id = $batch_id,
+                        b.version = $version,
+                        b.status = 'building',
+                        b.expected_facts = $expected,
+                        b.source_fingerprint = $fingerprint,
+                        b.created_at = $created_at
+
+                    RETURN properties(b) AS data
+
+                """,
+                    key=batch_key,
+                    batch_id=batch_id,
+                    version=VERSION,
+                    expected=expected,
+                    fingerprint=fingerprint,
+                    created_at=datetime.now(
+                        timezone.utc
+                    ).isoformat(),
+                ).single()["data"]
+
+                for field, wanted in (
+                    ("batch_id", batch_id),
+                    ("version", VERSION),
+                    ("expected_facts", expected),
+                    ("source_fingerprint", fingerprint),
+                ):
+                    if state.get(field) != wanted:
+                        raise ValueError(
+                            "Batch vista già esistente "
+                            f"e incompatibile: {field}"
+                        )
+
+                if state.get("status") not in {
+                    "building",
+                    "ready",
+                }:
+                    raise ValueError(
+                        "Stato batch vista inatteso"
+                    )
+
+                for start in tqdm(
+                    range(
+                        0,
+                        len(rows),
+                        batch_size,
+                    ),
+                    desc="Materialize",
+                    unit="batch",
+                ):
+                    session.execute_write(
+                        write_batch,
+                        rows[
+                            start:start + batch_size
+                        ],
+                        batch_key,
+                    )
+
+                stats = audit_links(
+                    session,
                     batch_key,
                 )
 
-            stats = audit_links(
-                session,
-                batch_key,
-            )
-
-            if (
-                stats["total"] != expected
-                or stats["distinct_claims"] != expected
-                or stats["broken_links"] != 0
-                or stats["prematurely_enabled"] != 0
-            ):
-                raise ValueError(
-                    "Vista incompleta o incoerente: "
-                    f"{dict(stats)}"
-                )
-
-            session.run("""
-                MATCH (
-                    b:ValidatedFactBatch {id:$key}
-                )
-
-                WHERE
-                    b.source_fingerprint = $fingerprint
-                    AND b.expected_facts = $expected
-
-                SET
-                    b.status = 'ready',
-                    b.ready_at = coalesce(
-                        b.ready_at,
-                        $now
+                if (
+                    stats["total"] != expected
+                    or stats["distinct_claims"] != expected
+                    or stats["broken_links"] != 0
+                    or stats["prematurely_enabled"] != 0
+                ):
+                    raise ValueError(
+                        "Vista incompleta o incoerente: "
+                        f"{dict(stats)}"
                     )
-            """,
-                key=batch_key,
-                fingerprint=fingerprint,
-                expected=expected,
-                now=datetime.now(
-                    timezone.utc
-                ).isoformat(),
-            ).consume()
 
-            print(
-                "COMMIT completed:",
-                dict(stats),
-            )
+                session.run("""
+                    MATCH (
+                        b:ValidatedFactBatch {id:$key}
+                    )
 
-    finally:
-        driver.close()
+                    WHERE
+                        b.source_fingerprint = $fingerprint
+                        AND b.expected_facts = $expected
+
+                    SET
+                        b.status = 'ready',
+                        b.ready_at = coalesce(
+                            b.ready_at,
+                            $now
+                        )
+                """,
+                    key=batch_key,
+                    fingerprint=fingerprint,
+                    expected=expected,
+                    now=datetime.now(
+                        timezone.utc
+                    ).isoformat(),
+                ).consume()
+
+                print(
+                    "COMMIT completed:",
+                    dict(stats),
+                )
+
+        finally:
+            driver.close()
+
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        return False
+
+    return True
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """Materializzazione dei ValidatedFact del batch."""
     parser = argparse.ArgumentParser(
-        description=__doc__,
+        prog="presskg.validation.materialization",
+        description="Materializza i ValidatedFact in Neo4j.",
     )
-
     parser.add_argument(
-        "--batch-id",
-        default=BATCH_ID_DEFAULT,
+        "--batch-id", default=None,
+        help="id del batch ValidatedFact (default: derivato dai modelli)",
     )
-
-    parser.add_argument(
-        "--padding",
-        type=int,
-        default=600,
-    )
-
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=200,
-    )
-
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=0,
-        help="Limita il dry run a N fatti; 0=tutti",
-    )
-
-    parser.add_argument(
-        "--commit",
-        action="store_true",
-    )
-
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == "__main__":
-    main()
+    parser.add_argument("--padding", type=int, default=600)
+    parser.add_argument("--batch-size", type=int, default=200)
+    parser.add_argument("--limit", type=int, default=0, help="0 = tutti")
+    parser.add_argument("--commit", action="store_true", help="scrive su Neo4j")
+    return parser
