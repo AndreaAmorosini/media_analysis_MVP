@@ -183,14 +183,46 @@ class ValidationPackageTests(unittest.TestCase):
             other,
             "qwen38-27b-gemma-4-31b-gemma-4-12b-v1",
         )
-        # secondario di default
+        # secondario di default: dipende da UNSLOTH_EVAL_MODEL_BIS se settato
+        from presskg.config import CFG
+
+        expected_secondary = CFG.secondary_eval_model_id or DEFAULT_SECONDARY_JUDGE
         self.assertIn(
-            model_tag(DEFAULT_SECONDARY_JUDGE),
+            model_tag(expected_secondary),
             derive_batch_id(
                 extract_model="unsloth/Qwen3.8-27B-GGUF",
                 judge_model="unsloth/gemma-4-31B-it-GGUF",
             ),
         )
+
+    def test_batch_id_secondary_from_env_bis(self):
+        """UNSLOTH_EVAL_MODEL_BIS diventa il secondario di default; vuoto = fallback."""
+        from types import SimpleNamespace
+        from unittest import mock
+
+        import presskg.config as config_module
+        from presskg.validation.batch import DEFAULT_SECONDARY_JUDGE, derive_batch_id, model_tag
+
+        bis = "unsloth/Ministral-3-8B-Instruct-2512-GGUF"
+
+        def fake_cfg(secondary):
+            return SimpleNamespace(
+                model_id="unsloth/Qwen3.8-27B-GGUF",
+                secondary_eval_model_id=secondary,
+            )
+
+        with mock.patch.object(config_module, "CFG", fake_cfg(bis)):
+            derived = derive_batch_id(
+                judge_model="unsloth/gemma-4-31B-it-GGUF",
+            )
+        self.assertIn(model_tag(bis), derived)
+        self.assertNotIn(model_tag(DEFAULT_SECONDARY_JUDGE), derived)
+
+        with mock.patch.object(config_module, "CFG", fake_cfg("")):
+            derived = derive_batch_id(
+                judge_model="unsloth/gemma-4-31B-it-GGUF",
+            )
+        self.assertIn(model_tag(DEFAULT_SECONDARY_JUDGE), derived)
 
     def test_cli_dispatch_with_subcommand(self):
         """main() gira il sottocomando posizionale come args.command."""

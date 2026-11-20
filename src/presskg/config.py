@@ -32,6 +32,7 @@ class Settings:
     api_key: str = os.getenv("UNSLOTH_API_KEY", "local")
     model_id: str = os.getenv("UNSLOTH_MODEL", "")
     eval_model_id: str = os.getenv("UNSLOTH_EVAL_MODEL", "")
+    secondary_eval_model_id: str = os.getenv("UNSLOTH_EVAL_MODEL_BIS", "")
     data_dir: Path = root_path(os.getenv("PRESSKG_DATA_DIR", "Data"))
     output_dir: Path = root_path(os.getenv("PRESSKG_OUTPUT_DIR", "output/extractions"))
     window_chars: int = int(os.getenv("PRESSKG_WINDOW_CHARS", "6500"))

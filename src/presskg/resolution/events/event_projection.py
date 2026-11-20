@@ -14,12 +14,13 @@ from argparse import Namespace
 import hashlib
 import json
 import os
+import re
 
 from collections import Counter
 from pathlib import Path
 
 from neo4j import GraphDatabase, READ_ACCESS
-from presskg.config import CFG
+from presskg.config import CFG, ROOT
 from presskg.common import require
 from presskg.common.io import write_json_stable
 from presskg.resolution import paths
@@ -29,6 +30,64 @@ from presskg.resolution.context import StepContext, StepResult
 
 
 VERSION = "canonical-event-projection-v1"
+
+# catalogo dei gruppi di evento (label secondarie per la visualizzazione)
+EVENT_GROUPS_CONFIG = ROOT / "config" / "event_type_groups.json"
+
+# Label secondaria del gruppo: transaction-safe (SET su label esistente,
+# non fa parte del MERGE: l'event_key resta l'identita' unica).
+# Le graffe del pattern sono RADDOPPIATE: la query passa da .format()
+# per interpolare la label (dynamic label non parametrizzabile in Cypher).
+SET_EVENT_GROUP_LABEL_QUERY = """
+UNWIND $keys AS k
+
+MATCH (c:CanonicalEvent {{
+    event_key: k
+}})
+
+SET c:{label}
+
+RETURN count(c) AS labeled
+"""
+
+
+def known_event_groups():
+    """Gruppi di evento ammissibili: chiavi del catalogo configurato."""
+    try:
+        data = json.loads(
+            EVENT_GROUPS_CONFIG.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return frozenset()
+
+    return frozenset(
+        str(key)
+        for key in data
+    )
+
+
+def event_group_label(type_group):
+    """Label secondaria del gruppo di evento per la classificazione.
+
+    ``natural_hazard`` -> ``NaturalHazard``. Solo gruppi presenti nel
+    catalogo: valori sconosciuti o assenti non ricevono label (contati
+    come skipped nel report).
+    """
+    type_group = str(type_group or "").strip()
+
+    if type_group not in known_event_groups():
+        return None
+
+    parts = [
+        re.sub(r"[^0-9a-zA-Z]", "", part)
+        for part in type_group.split("_")
+    ]
+
+    return "".join(
+        part.capitalize()
+        for part in parts
+        if part
+    )
 
 
 SOURCE_QUERY = """
@@ -307,6 +366,50 @@ def validate_existing(existing, rows):
     return len(existing)
 
 
+def apply_event_group_labels(tx, rows):
+    """Applica le label secondarie ``EventGroup*`` agli eventi del batch.
+
+    Ritorna ``(label_counts, skipped_counts)`` per il report: gruppi
+    catalogati vs valori sconosciuti/assenti in type_group.
+    """
+    by_group = {}
+
+    for row in rows:
+        label = event_group_label(row.get("type_group"))
+
+        if label is None:
+            continue
+
+        by_group.setdefault(
+            (row["type_group"], label), []
+        ).append(row["event_key"])
+
+    label_counts = Counter()
+    skipped_counts = Counter()
+
+    for (_, label), keys in sorted(by_group.items()):
+        result = tx.run(
+            SET_EVENT_GROUP_LABEL_QUERY.format(label=label),
+            keys=keys,
+        ).single()
+
+        require(
+            result is not None
+            and result["labeled"] == len(keys),
+            "Canonical event group label conflict",
+        )
+
+        label_counts[label] += len(keys)
+
+    for row in rows:
+        if event_group_label(row.get("type_group")) is None:
+            skipped_counts[
+                str(row.get("type_group"))
+            ] += 1
+
+    return label_counts, skipped_counts
+
+
 def apply_transaction(tx, rows, batch_size):
     check_external_conflicts(tx)
 
@@ -320,6 +423,8 @@ def apply_transaction(tx, rows, batch_size):
     validate_existing(fetch_existing(tx), rows)
 
     total = 0
+    label_counts = Counter()
+    skipped_counts = Counter()
 
     for start in range(0, len(rows), batch_size):
         batch = rows[start:start + batch_size]
@@ -335,6 +440,13 @@ def apply_transaction(tx, rows, batch_size):
             "Incomplete CanonicalEvent materialization",
         )
 
+        # label secondarie del gruppo: stessa transazione della creazione
+        labels, skipped = apply_event_group_labels(
+            tx, batch
+        )
+        label_counts.update(labels)
+        skipped_counts.update(skipped)
+
         total += count
 
     existing = fetch_existing(tx)
@@ -344,7 +456,7 @@ def apply_transaction(tx, rows, batch_size):
         "Post-apply validation failed",
     )
 
-    return total
+    return total, label_counts, skipped_counts
 
 
 def rollback_transaction(tx):
@@ -463,14 +575,23 @@ def run(ctx: StepContext) -> StepResult:
             ) as session:
                 session.run(CREATE_CONSTRAINT).consume()
 
-                written = session.execute_write(
-                    apply_transaction,
-                    rows,
-                    batch_size,
+                written, labels, skipped = (
+                    session.execute_write(
+                        apply_transaction,
+                        rows,
+                        batch_size,
+                    )
                 )
 
             report["canonical_events_materialized"] = written
             report["graph_writes"] = written
+            # classificazione: label secondarie per il gruppo evento
+            report["event_group_label_counts"] = dict(
+                labels
+            )
+            report["event_group_labels_skipped"] = dict(
+                skipped
+            )
 
         write_json_stable(
             Path(out_dir) / "summary.json",

@@ -330,7 +330,8 @@ Cosa inchiodano i test strutturali (`test_structural_invariants.py`):
   nella forma `<ingest>-<giudice primario>-<giudice secondario>-vN`, con tag
   leggibili (`unsloth/Qwen3.5-4B-MTP-GGUF:UD-Q4_K_XL` → `qwen35-4b-mtp`).
   Default: ingest da `UNSLOTH_MODEL`, giudice primario da `UNSLOTH_EVAL_MODEL`,
-  secondario costante (overridabile). Niente id congelati nel codice
+  secondario da `UNSLOTH_EVAL_MODEL_BIS` (fallback: secondo giudice di
+  default del repo). Niente id congelati nel codice
   (imposto da `test_validation_package.py`); override esplicito con
   `--batch-id` su validation e `pixi run resolution --batch-id <id>` per
   rileggere batch storici già materializzati.

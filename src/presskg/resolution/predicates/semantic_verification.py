@@ -832,11 +832,18 @@ def consolidate_gaps(records, minimum_facts, minimum_articles):
     return results
 
 
+def default_verification_model() -> str:
+    from presskg.config import CFG
+    from presskg.validation.batch import DEFAULT_SECONDARY_JUDGE
+
+    return CFG.secondary_eval_model_id or DEFAULT_SECONDARY_JUDGE
+
+
 def run(ctx: StepContext) -> StepResult:
     args = ctx.args
     candidates_dir = getattr(args, "candidates_dir", str(paths.step_dir(args, "candidate_recovery")))
     out_dir = getattr(args, "out_dir", str(paths.step_dir(args, "semantic_verification")))
-    model = getattr(args, "model", "unsloth/gemma-4-12b-it-GGUF")
+    model = getattr(args, "model", "") or default_verification_model()
     limit = getattr(args, "limit", 0)
     timeout = getattr(args, "timeout", 180)
     retries = getattr(args, "retries", 2)

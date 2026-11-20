@@ -17,7 +17,8 @@ I tag sono slug leggibili e deterministici:
     unsloth/gemma-4-31B-it-GGUF                -> gemma-4-31b
 
 Default: ingest = ``UNSLOTH_MODEL``, giudice primario = ``UNSLOTH_EVAL_MODEL``,
-giudice secondario = ``DEFAULT_SECONDARY_JUDGE`` (overridabile).
+giudice secondario = ``UNSLOTH_EVAL_MODEL_BIS``
+(fallback: ``DEFAULT_SECONDARY_JUDGE``).
 """
 
 from __future__ import annotations
@@ -65,7 +66,8 @@ def derive_batch_id(
         from presskg.config import CFG
         extract_model = CFG.model_id
     if secondary_model is None:
-        secondary_model = DEFAULT_SECONDARY_JUDGE
+        from presskg.config import CFG
+        secondary_model = CFG.secondary_eval_model_id or DEFAULT_SECONDARY_JUDGE
     version = version or BATCH_VERSION
     parts = [
         model_tag(extract_model),
@@ -76,6 +78,11 @@ def derive_batch_id(
 
 
 def default_batch_id() -> str:
-    """Batch id dai modelli configurati (``UNSLOTH_MODEL`` + ``UNSLOTH_EVAL_MODEL``)."""
+    """Batch id dai modelli configurati.
+
+    ``UNSLOTH_MODEL`` (ingest) + ``UNSLOTH_EVAL_MODEL`` (giudice primario) +
+    ``UNSLOTH_EVAL_MODEL_BIS`` (giudice secondario, con fallback a
+    ``DEFAULT_SECONDARY_JUDGE``).
+    """
     from presskg.config import CFG
     return derive_batch_id(judge_model=CFG.eval_model_id)

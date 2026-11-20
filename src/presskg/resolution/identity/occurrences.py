@@ -24,6 +24,7 @@ from presskg.common import require
 from presskg.common.hashing import sha256_file
 from presskg.common.io import iter_jsonl
 from presskg.resolution import paths
+from presskg.taxonomy.entity_ontology import TYPES
 from presskg.resolution.context import StepContext, StepResult
 
 
@@ -164,6 +165,16 @@ def facet(kind):
         return "PRODUCT_SERVICE"
 
     return None
+
+
+# facet ammissibili: set chiuso derivato dai tipi dell'ontologia
+# (unica fonte); usato anche dalla materializzazione per le label
+# secondarie dei CanonicalEntity
+FACETS = frozenset(
+    f
+    for f in (facet(kind) for kind in TYPES)
+    if f
+)
 
 
 # ============================================================

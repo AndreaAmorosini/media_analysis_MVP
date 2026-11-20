@@ -545,16 +545,29 @@ def run_generate(args):
             if not processed and fh.tell() == 0:
                 writer.writeheader()
             after = ""
-            total = session.run(
-                "MATCH (c:Claim) WHERE ($predicates = [] OR c.predicate IN $predicates) "
-                "MATCH (c)-[:SUBJECT]->(s:GraphNode) "
-                "MATCH (c)-[:OBJECT]->(o:GraphNode) "
-                "MATCH (a:Article {id:c.article_id}) "
-                "RETURN count(c) AS n",
-                predicates=args.predicates).single()["n"]
-            if args.limit > 0:
-                total = min(total, args.limit)
-            pbar = tqdm(total=total, unit="claim", desc="validazione")            
+            if selected_ids is not None:
+                # total limitato ai claim selezionati per il secondo giudizio
+                # (quelli gia' presenti nel CSV di resume non sono da fare)
+                total = session.run(
+                    "MATCH (c:Claim) WHERE c.id IN $ids "
+                    "AND ($predicates = [] OR c.predicate IN $predicates) "
+                    "MATCH (c)-[:SUBJECT]->(s:GraphNode) "
+                    "MATCH (c)-[:OBJECT]->(o:GraphNode) "
+                    "MATCH (a:Article {id:c.article_id}) "
+                    "RETURN count(c) AS n",
+                    ids=sorted(selected_ids), predicates=args.predicates).single()["n"]
+                total -= len(processed & selected_ids)
+            else:
+                total = session.run(
+                    "MATCH (c:Claim) WHERE ($predicates = [] OR c.predicate IN $predicates) "
+                    "MATCH (c)-[:SUBJECT]->(s:GraphNode) "
+                    "MATCH (c)-[:OBJECT]->(o:GraphNode) "
+                    "MATCH (a:Article {id:c.article_id}) "
+                    "RETURN count(c) AS n",
+                    predicates=args.predicates).single()["n"]
+                if args.limit > 0:
+                    total = min(total, args.limit)
+            pbar = tqdm(total=total, unit="claim", desc="validazione")
 
             while True:
                 block = session.run(READ, after=after, predicates=args.predicates,

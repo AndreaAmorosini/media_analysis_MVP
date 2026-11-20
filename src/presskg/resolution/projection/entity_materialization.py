@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 
+from collections import Counter
 from pathlib import Path
 
 from neo4j import GraphDatabase, READ_ACCESS
@@ -461,6 +462,46 @@ RETURN count(r) AS matched
 """
 
 
+# Label secondaria del tipo: transaction-safe (SET su label esistente,
+# non fa parte del MERGE: il projection_key resta l'identita' unica).
+# Le graffe del pattern sono RADDOPPIATE: la query passa da .format()
+# per interpolare la label (dynamic label non parametrizzabile in Cypher).
+SET_FACET_LABEL_QUERY = """
+UNWIND $keys AS k
+
+MATCH (c:CanonicalEntity {{
+    projection_key: k
+}})
+
+SET c:{label}
+
+RETURN count(c) AS labeled
+"""
+
+
+def facet_label(facet):
+    """Label secondaria del facet semantico per la classificazione.
+
+    ``PERSON`` -> ``Person``, ``PRODUCT_SERVICE`` -> ``ProductService``.
+    Solo facet noti (set chiuso di ``identity.occurrences.FACETS``):
+    facet sconosciuti o assenti non ricevono label (contati come
+    skipped nel report). Le label secondarie permettono la
+    visualizzazione per colore (Browser/Bloom colorano per label) senza
+    toccare la chiave di proiezione.
+    """
+    from presskg.resolution.identity.occurrences import FACETS
+
+    facet = str(facet or "").strip().upper()
+
+    if facet not in FACETS:
+        return None
+
+    return "".join(
+        part.capitalize()
+        for part in facet.split("_")
+    )
+
+
 def materialize_batch(tx, nodes):
     links = [
         link
@@ -495,6 +536,9 @@ def materialize_batch(tx, nodes):
         "Canonical node conflict",
     )
 
+    # label secondarie del tipo: stessa transazione della creazione
+    labels = apply_facet_labels(tx, nodes)
+
     result = tx.run(
         CREATE_LINKS_QUERY,
         rows=links,
@@ -508,7 +552,52 @@ def materialize_batch(tx, nodes):
         "Canonical relation conflict",
     )
 
-    return len(nodes), len(links)
+    return len(nodes), len(links), labels
+
+
+def apply_facet_labels(tx, nodes):
+    """Applica le label secondarie ``Facet*`` ai nodi del batch.
+
+    Ritorna ``(label_counts, skipped_counts)``: le label applicate per
+    facet e i facet senza label (sconosciuti/assenti), per il report.
+    """
+    by_facet = {}
+
+    for node in nodes:
+        facet = node.get("semantic_facet")
+        label = facet_label(facet)
+
+        if label is None:
+            continue
+
+        by_facet.setdefault(
+            (facet, label), []
+        ).append(node["projection_key"])
+
+    label_counts = Counter()
+    skipped_counts = Counter()
+
+    for (facet, label), keys in sorted(by_facet.items()):
+        result = tx.run(
+            SET_FACET_LABEL_QUERY.format(label=label),
+            keys=keys,
+        ).single()
+
+        require(
+            result is not None
+            and result["labeled"] == len(keys),
+            "Canonical facet label conflict",
+        )
+
+        label_counts[label] += len(keys)
+
+    for node in nodes:
+        if facet_label(node.get("semantic_facet")) is None:
+            skipped_counts[
+                str(node.get("semantic_facet"))
+            ] += 1
+
+    return label_counts, skipped_counts
 
 
 def plan_batches(plan, max_links):
@@ -713,6 +802,8 @@ def run(ctx: StepContext) -> StepResult:
             if apply:
                 written_nodes = 0
                 written_links = 0
+                label_counts = Counter()
+                skipped_counts = Counter()
 
                 with driver.session(
                     database=database
@@ -720,17 +811,28 @@ def run(ctx: StepContext) -> StepResult:
                     for batch in plan_batches(
                         plan, batch_size
                     ):
-                        n, l = session.execute_write(
+                        n, l, (
+                            labels, skipped,
+                        ) = session.execute_write(
                             materialize_batch, batch
                         )
 
                         written_nodes += n
                         written_links += l
+                        label_counts.update(labels)
+                        skipped_counts.update(skipped)
 
                 report["attempted_nodes"] = written_nodes
                 report["attempted_links"] = written_links
                 report["graph_writes"] = (
                     written_nodes + written_links
+                )
+                # classificazione: label secondarie per il tipo
+                report["type_label_counts"] = dict(
+                    label_counts
+                )
+                report["type_labels_skipped"] = dict(
+                    skipped_counts
                 )
 
             with driver.session(

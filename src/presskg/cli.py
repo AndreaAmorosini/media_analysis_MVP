@@ -58,6 +58,15 @@ def model_check():
 
     print("Modelli serviti da Unsloth:", models)
 
+    from presskg.validation.batch import DEFAULT_SECONDARY_JUDGE
+
+    print("Modello di ingestione:", CFG.model_id)
+    print("Primo valutatore:", CFG.eval_model_id)
+    print(
+        "Secondo valutatore:",
+        CFG.secondary_eval_model_id or DEFAULT_SECONDARY_JUDGE,
+    )
+
     # if CFG.model_id not in models:
     #     raise ValueError(f"UNSLOTH_MODEL={CFG.model_id!r} non presente nell'endpoint")
 

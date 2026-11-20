@@ -4,12 +4,16 @@ set -euo pipefail
 
 ROOT="${VALIDATION_DIR:-output/semantic_validation/qwen38_full}"
 
-GEMMA31_ID="${VALIDATION_GEMMA31_ID:-}"
-# giudice primario di default: il modello di valutazione configurato (.env)
-if [[ -z "$GEMMA31_ID" ]]; then
-    GEMMA31_ID="$(pixi run python -c 'from presskg.config import CFG; print(CFG.eval_model_id)')"
+# giudici per ruolo: id letti dalla configurazione (.env) oppure override
+# espliciti; nessun modello hardcoded nello script.
+JUDGE1_ID="${VALIDATION_JUDGE1_ID:-}"
+if [[ -z "$JUDGE1_ID" ]]; then
+    JUDGE1_ID="$(pixi run python -c 'from presskg.config import CFG; print(CFG.eval_model_id)')"
 fi
-GEMMA12_ID="${VALIDATION_GEMMA12_ID:-unsloth/gemma-4-12b-it-GGUF}"
+JUDGE2_ID="${VALIDATION_JUDGE2_ID:-}"
+if [[ -z "$JUDGE2_ID" ]]; then
+    JUDGE2_ID="$(pixi run python -c 'from presskg.config import CFG; from presskg.validation.batch import DEFAULT_SECONDARY_JUDGE as D; print(CFG.secondary_eval_model_id or D)')"
+fi
 
 # batch id derivato dai modelli effettivi della catena
 # (ingest da CFG + giudice primario + giudice secondario), vedi
@@ -19,12 +23,12 @@ if [[ -n "${VALIDATION_BATCH_ID:-}" ]]; then
 else
     BATCH_ID="$(pixi run python -c \
         'import sys; from presskg.validation.batch import derive_batch_id; print(derive_batch_id(judge_model=sys.argv[1], secondary_model=sys.argv[2]))' \
-        "$GEMMA31_ID" "$GEMMA12_ID")"
+        "$JUDGE1_ID" "$JUDGE2_ID")"
 fi
 
-PRIMARY="$ROOT/gemma31_primary.csv"
+PRIMARY="$ROOT/primary.csv"
 SELECTED="$ROOT/secondary_ids.csv"
-SECONDARY="$ROOT/gemma12_secondary.csv"
+SECONDARY="$ROOT/secondary.csv"
 CANDIDATES="$ROOT/correction_candidates.jsonl"
 VERIFIED="$ROOT/correction_verified.jsonl"
 
@@ -32,21 +36,21 @@ mkdir -p "$ROOT"
 
 if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
 
-    : "${GEMMA31_ID:?Imposta GEMMA31_ID}"
-    : "${GEMMA12_ID:?Imposta GEMMA12_ID}"
+    : "${JUDGE1_ID:?Imposta il giudice primario (VALIDATION_JUDGE1_ID o UNSLOTH_EVAL_MODEL)}"
+    : "${JUDGE2_ID:?Imposta il giudice secondario (VALIDATION_JUDGE2_ID o UNSLOTH_EVAL_MODEL_BIS)}"
 
-    if [[ "$GEMMA31_ID" == "$GEMMA12_ID" ]]; then
+    if [[ "$JUDGE1_ID" == "$JUDGE2_ID" ]]; then
         echo "I due giudici devono essere differenti" >&2
         exit 2
     fi
 
-    echo "=== 1/7 Validazione primaria Gemma 31B ==="
+    echo "=== 1/7 Validazione primaria (primo valutatore) ==="
 
     opts=()
     [[ -f "$PRIMARY" ]] && opts+=(--resume)
 
     pixi run python -m presskg.validation primary generate \
-        --model "$GEMMA31_ID" \
+        --model "$JUDGE1_ID" \
         --limit 0 \
         --context-chars 600 \
         --max-tokens 1600 \
@@ -70,7 +74,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
         --out "$SELECTED" \
         --skip-correction-proposals
 
-    echo "=== 4/7 Secondo giudizio originali ==="
+    echo "=== 4/7 Secondo giudizio (secondo valutatore) ==="
 
     selected_count=$(($(wc -l < "$SELECTED") - 1))
 
@@ -79,7 +83,7 @@ if [[ "${VALIDATION_ONLY_APPLY:-0}" != "1" ]]; then
         [[ -f "$SECONDARY" ]] && opts+=(--resume)
 
         pixi run python -m presskg.validation primary generate \
-            --model "$GEMMA12_ID" \
+            --model "$JUDGE2_ID" \
             --claim-ids-file "$SELECTED" \
             --limit 0 \
             --context-chars 600 \
@@ -113,7 +117,7 @@ PY
     if [[ -s "$CANDIDATES" ]]; then
         pixi run python -m presskg.validation corrections verify \
             --candidates "$CANDIDATES" \
-            --model "$GEMMA12_ID" \
+            --model "$JUDGE2_ID" \
             --out "$VERIFIED" \
             --context-chars 600 \
             --max-tokens 1600 \

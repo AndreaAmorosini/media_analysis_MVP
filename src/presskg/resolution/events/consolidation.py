@@ -25,7 +25,11 @@ from presskg.config import CFG
 from presskg.common import require
 from presskg.common.io import write_json_stable
 from presskg.resolution import paths
-from presskg.resolution._common import close_step_driver, step_driver
+from presskg.resolution._common import (
+    close_step_driver,
+    phase_reusable,
+    step_driver,
+)
 from presskg.resolution.context import StepContext, StepResult
 
 
@@ -575,11 +579,25 @@ def run(ctx: StepContext) -> StepResult:
 
         statistics = plan["statistics"]
 
+        # requisito: la fase 6C (overlay dei predicati) e' stata applicata
+        # nel --out corrente. Che abbia raffinato zero predicati e' un esito
+        # legittimo (nessun claim OTHER da correggere) e non blocca il
+        # consolidamento, che prosegue sui predicati originali.
         require(
-            statistics.get("refined_facts", 0) > 0,
-            "No predicate refinements detected. "
-            "Apply Phase 6C before consolidation.",
+            phase_reusable(
+                args,
+                [("overlay", "summary.json", "applied")],
+            ),
+            "Predicates overlay (fase 6C) non applicato in --out: "
+            "eseguire la fase predicates con --apply prima del "
+            "consolidamento.",
         )
+
+        if statistics.get("refined_facts", 0) == 0:
+            print(
+                "[consolidation] nessun predicato raffinato dalla fase 6C; "
+                "consolidamento sui predicati originali"
+            )
 
         report = {
             "version": VERSION,

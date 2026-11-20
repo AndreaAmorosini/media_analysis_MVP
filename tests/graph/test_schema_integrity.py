@@ -4,9 +4,53 @@ Ogni test fallisce se una fase della pipeline non è mai stata applicata al
 database: il messaggio indica quale fase eseguire.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.graph
+
+# label secondarie di classificazione (per la visualizzazione per colore):
+# FACETS -> Person/Organization/... sui CanonicalEntity (apply della
+# projection); gruppi evento del catalogo -> NaturalHazard/... sui
+# CanonicalEvent
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _facet_type_labels():
+    from presskg.resolution.identity.occurrences import FACETS
+
+    return sorted(
+        "".join(
+            part.capitalize()
+            for part in facet.split("_")
+        )
+        for facet in FACETS
+    )
+
+
+def _event_group_labels():
+    config = (
+        REPO_ROOT / "config" / "event_type_groups.json"
+    )
+
+    try:
+        groups = json.loads(
+            config.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    return sorted(
+        "".join(
+            part.capitalize()
+            for part in str(group).split("_")
+            if part
+        )
+        for group in groups
+    )
+
 
 EXPECTED_NODE_LABELS = [
     "Article",
@@ -25,6 +69,10 @@ EXPECTED_NODE_LABELS = [
 # validazione/corrections, backfill fonti o overlay predicati.
 # EntityMention e' scritto da graph_store.store_article insieme alle
 # CANDIDATE_GLOBAL verso i GlobalEntity (grafo entita' pre-resolution).
+# Le label di classe semantica (Person, Organization, NaturalHazard, ...)
+# sono le label secondarie di classificazione dei
+# nodi canonici (derivate da FACETS e dal catalogo: restano allineate ai
+# cataloghi senza modifiche manuali alla whitelist).
 OPTIONAL_NODE_LABELS = [
     "ClaimValidation",
     "VerifiedClaimCorrection",
@@ -33,7 +81,7 @@ OPTIONAL_NODE_LABELS = [
     "GraphNode",
     "Topic",
     "EntityMention",
-]
+] + _facet_type_labels() + _event_group_labels()
 
 EXPECTED_REL_TYPES = [
     "FACT",

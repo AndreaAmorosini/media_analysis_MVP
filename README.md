@@ -39,6 +39,7 @@ Copia `.env.example` in `.env` e imposta almeno `NEO4J_PASSWORD`, `UNSLOTH_MODEL
 | `UNSLOTH_API_KEY` | `local` | API key del server LLM |
 | `UNSLOTH_MODEL` | — | Modello di **estrazione** (ingest) |
 | `UNSLOTH_EVAL_MODEL` | — | Giudice primario della catena di validazione |
+| `UNSLOTH_EVAL_MODEL_BIS` | vuoto | Secondo giudice della catena di validazione (vuoto = secondo giudice di default del repo) |
 | `UNSLOTH_REQUEST_TIMEOUT` | `600` | Timeout richieste LLM (secondi) |
 | `PRESSKG_PROFILE` | `4070` | Profilo hardware: `4070` o `5090` (finestre/token massimi) |
 | `PRESSKG_DATA_DIR` | `Data` | Directory degli articoli |
@@ -189,8 +190,8 @@ Esegue l'intera catena 1→8 determinando il batch id dai modelli di `.env`. Com
 | `VALIDATION_COMMIT=1` | dry-run | Persiste gate 6-7 su Neo4j e materializza il batch (8) |
 | `VALIDATION_ONLY_APPLY=1` | — | Salta le fasi LLM (1-5): riusa i CSV esistenti ed esegue solo i gate |
 | `VALIDATION_BATCH_ID` | derivato dai modelli | Override dell'id batch (per batch storici) |
-| `VALIDATION_GEMMA31_ID` | `UNSLOTH_EVAL_MODEL` | Giudice primario |
-| `VALIDATION_GEMMA12_ID` | `unsloth/gemma-4-12b-it-GGUF` | Giudice secondario (diverso dal primario) |
+| `VALIDATION_JUDGE1_ID` | `UNSLOTH_EVAL_MODEL` | Giudice primario |
+| `VALIDATION_JUDGE2_ID` | `UNSLOTH_EVAL_MODEL_BIS` (vuoto = default del repo) | Giudice secondario (diverso dal primario) |
 
 ```bash
 pixi run validation-full                                        # generazione (dry-run dei gate)

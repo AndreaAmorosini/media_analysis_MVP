@@ -33,6 +33,17 @@ export VALIDATION_COMMIT=1
 
 echo "=== E2E PressKG: skip=$SKIP limit=${LIMIT:-tutti} out=$OUT ==="
 echo "=== DB: $(pixi run python -c 'from presskg.config import CFG; print(CFG.neo4j_uri)') ==="
+echo "=== Modelli (da .env): $(pixi run python - <<'PY'
+from presskg.config import CFG
+from presskg.validation.batch import DEFAULT_SECONDARY_JUDGE
+
+print(
+    f"ingestione={CFG.model_id}"
+    f" | primo valutatore={CFG.eval_model_id}"
+    f" | secondo valutatore={CFG.secondary_eval_model_id or DEFAULT_SECONDARY_JUDGE}"
+)
+PY
+) ==="
 
 echo "=== 0/8 Preflight ==="
 pixi run preflight
